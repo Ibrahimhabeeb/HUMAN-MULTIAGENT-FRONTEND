@@ -1,0 +1,85 @@
+.code-block {
+  min-width: 0;
+  max-width: 100%;
+  margin: 10px 0;
+  overflow: hidden;
+  border: 1px solid #41464c;
+  border-radius: 6px;
+  background: #181b20;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 10px 4px 12px;
+  border-bottom: 1px solid #343940;
+  background: #24282e;
+}
+.code-block-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+  flex: 1;
+}
+.code-block-path {
+  min-width: 0;
+  color: #e0e5eb;
+  font: 12px/1.5 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.code-block-path .codicon { color: #83c7bb; vertical-align: middle; }
+.code-block-language { color: #9ca7b3; font-size: 11px; }
+.code-copy { flex: 0 0 28px; width: 28px; height: 28px; color: #b7c2cd; }
+.code-copy:hover { color: #fff; background: #3a424c; }
+.code-copy:focus-visible { outline: 1px solid #83c7bb; outline-offset: 1px; }
+.code-block-location {
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #bac5d0;
+  border-bottom: 1px solid #343940;
+  overflow-wrap: anywhere;
+}
+.code-block-location b { color: #dce3eb; font-weight: 500; }
+.code-block pre.code-block-content {
+  margin: 0;
+  padding: 14px;
+  max-height: 360px;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: #181b20;
+  text-align: left;
+  word-break: normal;
+  overflow-wrap: normal;
+  tab-size: 4;
+}
+.code-block pre.code-block-content code {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #d8dee9;
+  font: 13px/1.65 var(--font-mono);
+  white-space: pre;
+}
+.code-block .hljs-keyword, .code-block .hljs-selector-tag { color: #d2a8ff; }
+.code-block .hljs-string, .code-block .hljs-attr { color: #a5d6a7; }
+.code-block .hljs-number, .code-block .hljs-literal { color: #f2cc8f; }
+.code-block .hljs-built_in, .code-block .hljs-type { color: #81c8df; }
+.code-block .hljs-title, .code-block .hljs-title.function_ { color: #82baff; }
+.code-block .hljs-comment, .code-block .hljs-quote { color: #8d9d8f; font-style: italic; }
+.code-block .hljs-meta, .code-block .hljs-tag { color: #eeac92; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
