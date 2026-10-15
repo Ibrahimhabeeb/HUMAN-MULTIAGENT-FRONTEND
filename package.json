@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "node tests/code-area-browser.mjs",
+    "test:study-browser": "node tests/study-modes-browser.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

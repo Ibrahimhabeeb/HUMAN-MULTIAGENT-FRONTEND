@@ -14,6 +14,7 @@ import type {
   RunResult,
   SecurityState,
   StudyState,
+  TaskId,
   Thread,
   TurnResult,
 } from './types'
@@ -60,7 +61,7 @@ const filePath = (path: string) => path.split('/').map(encodeURIComponent).join(
 
 export const api = {
   state: () => request<StudyState>('GET', '/study/state'),
-  start: (pilot: boolean) => request<StudyState>('POST', '/study/start', { pilot }),
+  start: (pilot: boolean, taskId: TaskId = 'A') => request<StudyState>('POST', '/study/start', { pilot, task_id: taskId }),
   continueToConsent: () => request<StudyState>('POST', '/study/continue'),
   decline: () => request<StudyState>('POST', '/study/decline'),
   consent: (version: string) => request<StudyState>('POST', '/study/consent', { consent_version: version }),

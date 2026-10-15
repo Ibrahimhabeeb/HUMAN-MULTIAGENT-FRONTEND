@@ -1422,6 +1422,19 @@ kbd {
   padding-left: 30px;
   min-width: 0;
 }
+.chat-proposals {
+  padding: 0 16px 10px 46px;
+}
+.approval-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.approval-card .card-head {
+  flex-wrap: wrap;
+}
+.approval-card .card-actions {
+  flex-wrap: wrap;
+}
 .user-text {
   white-space: pre-wrap;
   word-break: break-word;
