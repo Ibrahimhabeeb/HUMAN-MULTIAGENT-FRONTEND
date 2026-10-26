@@ -56,8 +56,12 @@ export const useAgents = create<AgentStore>((set, get) => {
     })
     const waiting = result.approvals.filter((a) => a.status === 'pending' && !knownApprovals.has(a.id)).length
     if (waiting > 0) useUi.getState().toast(`${waiting} new proposal(s) waiting for your approval.`)
-    // Suggested risks are already in the security state.
-    if (result.approvals.some((a) => a.status === 'suggested')) void useSecurity.getState().load()
+    // Suggested risks are already in the security state, and so is each unit test's latest result.
+    if (result.approvals.some((a) => a.status === 'suggested') || ranTests(result.messages)) void useSecurity.getState().load()
+  }
+
+  function ranTests(messages: Message[]) {
+    return messages.some((m) => m.role === 'agent' && m.data.agent === 'verifier')
   }
 
   function appendDelta(agent: Agent, content: string) {
@@ -193,12 +197,15 @@ export const useAgents = create<AgentStore>((set, get) => {
       let saved = false
       let next: Specialist | null = null
       try {
+        await useWorkspace.getState().saveAll() // asking for a review in chat reviews the saved files
+        if (version !== epoch) return false
         await api.sendStream(THREAD[mode], content, (event) => {
           if (version !== epoch) return
           switch (event.type) {
             case 'message':
               saved = true
               set({ messages: mergeMessages([event.message]), sending: null })
+              if (ranTests([event.message])) void useSecurity.getState().load()
               break
             case 'agent_start':
               set({
@@ -290,13 +297,14 @@ export const useAgents = create<AgentStore>((set, get) => {
         }
         const decided = await api.decide(id, decision)
         set({ approvals: get().approvals.map((a) => (a.id === id ? decided : a)) })
+        // Team mode: everything approved changes the state (an approved fix becomes a mitigation), and a rejected
+        // vulnerability stays listed there as rejected.
+        const changesState = decided.status !== 'rejected' || decided.action_type === 'propose_vulnerability'
+        if (changesState && useSecurity.getState().state) await useSecurity.getState().load()
         if (decided.status !== 'rejected') {
           if (decided.action_type === 'propose_test') await useWorkspace.getState().load()
-          // Team mode: everything approved changes the state (an approved fix becomes a mitigation).
-          if (useSecurity.getState().state) await useSecurity.getState().load()
-          // An approved finding queues the Code Reviewer's fix; an approved fix queues the Test/Verifier's test.
-          const queuesFollowUp = ['propose_vulnerability', 'suggest_fix'].includes(decided.action_type)
-          if (activeMode === 'team' && queuesFollowUp) await get().load('team')
+          // An accepted finding queues the Code Reviewer's fix.
+          if (activeMode === 'team' && decided.action_type === 'propose_vulnerability') await get().load('team')
         }
         return null
       } catch (error) {

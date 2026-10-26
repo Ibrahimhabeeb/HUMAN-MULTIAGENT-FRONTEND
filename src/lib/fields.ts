@@ -44,8 +44,6 @@ export const CATEGORY_FIELDS: Record<HumanCategory, Field[]> = {
   ],
 }
 
-export const RATIONALE: Field = { key: 'rationale', label: 'Why the risk is accepted (optional)', kind: 'textarea' }
-
 export function toValues(fields: Field[], source: Proposal = {}): FormValues {
   return Object.fromEntries(
     fields.map((field) => {

@@ -4,8 +4,8 @@ import { useSecurity } from '../store/security'
 
 const RED = '#f14c4c'
 
-// Lines the Code Reviewer flagged: vulnerabilities waiting for the developer's decision, and approved ones still open.
-// A rejected, fixed or deleted vulnerability is in neither list, so its highlight goes.
+// Lines the Code Reviewer flagged: vulnerabilities waiting for the developer's decision, and accepted ones whose fix
+// isn't implemented yet. A rejected or deleted one, or one with an implemented fix, is in neither, so its highlight goes.
 function flaggedLines(): Map<string, Map<number, string[]>> {
   const byFile = new Map<string, Map<number, string[]>>()
   function flag(file: unknown, line: unknown, text: string) {
@@ -21,8 +21,10 @@ function flaggedLines(): Map<string, Map<number, string[]>> {
     const { file, line, severity, description } = approval.proposal
     flag(file, line, `**Possible vulnerability** (${severity}), waiting for your decision: ${description}`)
   }
-  for (const v of useSecurity.getState().state?.vulnerabilities ?? []) {
-    if (v.status === 'open') flag(v.file, v.line, `**${v.id}** (${v.severity}): ${v.description}`)
+  const state = useSecurity.getState().state
+  for (const v of state?.vulnerabilities ?? []) {
+    const fixed = state?.mitigations.some((m) => m.vulnerability_id === v.id && m.status === 'implemented')
+    if (v.status === 'accepted' && !fixed) flag(v.file, v.line, `**${v.id}** (${v.severity}): ${v.description}`)
   }
   return byFile
 }

@@ -1215,6 +1215,9 @@ kbd {
 .st-accepted {
   color: #c586c0;
 }
+.st-rejected {
+  color: var(--fg-muted);
+}
 .st-unresolved {
   color: var(--err);
 }

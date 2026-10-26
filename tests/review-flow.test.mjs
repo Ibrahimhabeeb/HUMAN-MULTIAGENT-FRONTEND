@@ -120,9 +120,14 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
       assert.match(html, /One vulnerability\./)
     })
 
-    await t.test('old review routes do not leave a redundant Verifier Continue button', () => {
-      globalThis.reviewFixtures.agents.messages = [{ ...reviewed, data: { ...reviewed.data, route: ['reviewer', 'verifier'] } }, reviewReply]
-      assert.doesNotMatch(render(), /hasn&#x27;t answered yet|>Continue<\/button>/)
+    await t.test('a review shows the Test/Verifier report, then the Code Reviewer, with nothing left to retry', () => {
+      const report = { id: 15, role: 'agent', thread: 'team', content: 'I ran the unit tests: 3 failed.', data: { agent: 'verifier', reply_to: 10 }, ts: timestamp }
+      globalThis.reviewFixtures.agents.messages = [{ ...reviewed, data: { ...reviewed.data, route: ['verifier', 'reviewer'] } }, report, reviewReply]
+      globalThis.reviewFixtures.agents.approvals = []
+      const html = render()
+      assert.match(html, /I ran the unit tests: 3 failed\./)
+      assert.ok(html.indexOf('I ran the unit tests') < html.indexOf('One vulnerability.'))
+      assert.doesNotMatch(html, /reply is incomplete/)
     })
 
     await t.test('a Threat Modeller risk example uses the shared labelled code card', () => {
@@ -259,25 +264,39 @@ test('approval-triggered agent work runs concurrently and survives reload/reset'
       }
     })
 
-    await t.test('approving a fix starts the Test/Verifier follow-up it queues', async () => {
+    await t.test('decisions reload the shared state, a rejected vulnerability too; a fix starts no follow-up', async () => {
       store.getState().reset()
       calls = []
       requests = new Map()
+      let loads = 0
+      globalThis.reviewFixtures.security.load = async () => { loads++ }
       backendMessages = [finished(job(60, 'reviewer'), fix)]
-      backendApprovals = [finding, fix]
+      backendApprovals = [{ ...finding, status: 'pending' }, fix]
       await store.getState().load('team')
-      assert.deepEqual(calls, [])
       const originalDecide = globalThis.reviewApi.decide
-      globalThis.reviewApi.decide = async () => {
-        backendMessages = [...backendMessages, job(61, 'verifier')]
-        return { ...fix, status: 'approved' }
-      }
+      globalThis.reviewApi.decide = async (id, decision) => ({
+        ...(id === fix.id ? fix : finding), status: decision === 'approve' ? 'approved' : 'rejected',
+      })
       try {
         assert.equal(await store.getState().decide(fix.id, 'approve'), null)
-        assert.deepEqual(calls, [61])
+        assert.deepEqual(calls, []) // the Test/Verifier never writes tests
+        assert.equal(loads, 1) // the approved fix is a planned mitigation
+        assert.equal(await store.getState().decide(finding.id, 'reject'), null)
+        assert.equal(loads, 2) // the rejected vulnerability stays listed as rejected
       } finally {
         globalThis.reviewApi.decide = originalDecide
       }
+    })
+
+    await t.test('a Test/Verifier report reloads the shared state with the latest test results', async () => {
+      store.getState().reset()
+      let loads = 0
+      globalThis.reviewFixtures.security.load = async () => { loads++ }
+      const report = { id: 70, role: 'agent', thread: 'team', content: 'I ran the unit tests: 3 failed.', data: { agent: 'verifier', reply_to: 10 }, ts: timestamp }
+      globalThis.reviewApi.review = async () => ({ messages: [reviewed, report], approvals: [], next: null })
+      await store.getState().review('team')
+      assert.equal(loads, 1)
+      assert.ok(store.getState().messages.some((m) => m.id === report.id))
     })
   } finally {
     store?.getState().reset()

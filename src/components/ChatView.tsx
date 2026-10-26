@@ -17,7 +17,7 @@ const DOING: Record<Agent, string> = {
   planner: 'planning the steps',
   threat_modeller: 'looking for threats',
   reviewer: 'reviewing your code',
-  verifier: 'writing security tests',
+  verifier: 'running the unit tests',
   assistant: 'answering',
 }
 

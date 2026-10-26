@@ -123,8 +123,6 @@ export interface Risk extends StateItem {
   cwe: string | null
   owasp: string | null
   stride: string | null
-  status: 'open' | 'mitigated' | 'verified' | 'accepted'
-  rationale: string | null
 }
 
 // Found by the Code Reviewer in the developer's code.
@@ -134,7 +132,7 @@ export interface Vulnerability extends StateItem {
   file: string | null
   line: number | null
   cwe: string | null
-  status: 'open' | 'fixed'
+  status: 'accepted' | 'rejected' // the developer's decision; a rejected one stays listed
 }
 
 // A fix the Code Reviewer suggested and the human approved.
@@ -147,12 +145,12 @@ export interface Mitigation extends StateItem {
   status: 'planned' | 'implemented'
 }
 
-// A test file from the Test/Verifier, with its result in the latest Run tests.
-export interface SecurityTest extends StateItem {
-  path: string
-  vulnerability_ids: string[]
-  passed: boolean | null
-  result: string | null
+// One test function from the task's tests/ folder, with the outcome of the most recent run (open: not run yet).
+export interface UnitTest extends StateItem {
+  file: string
+  name: string
+  status: 'open' | 'passed' | 'failed'
+  message: string | null // why it failed in the most recent run
 }
 
 export interface SecurityState {
@@ -160,7 +158,7 @@ export interface SecurityState {
   risks: Risk[]
   vulnerabilities: Vulnerability[]
   mitigations: Mitigation[]
-  tests: SecurityTest[]
+  tests: UnitTest[]
 }
 
 export type Outcome = 'passed' | 'failed' | 'error' | 'skipped'

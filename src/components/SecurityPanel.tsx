@@ -6,12 +6,12 @@ import type {
   Proposal,
   Risk,
   SecurityState,
-  SecurityTest,
   Thread,
+  UnitTest,
   Vulnerability,
 } from '../api/types'
 import { AGENTS } from '../lib/agents'
-import { CATEGORY_FIELDS, RATIONALE, type Field } from '../lib/fields'
+import { CATEGORY_FIELDS } from '../lib/fields'
 import { useAgents } from '../store/agents'
 import { ask } from '../store/dialog'
 import { useSecurity } from '../store/security'
@@ -22,13 +22,16 @@ import { Codicon } from './Icons'
 type Item = Assumption | Risk | Vulnerability | Mitigation
 
 const STATUS_CLASS: Record<string, string> = {
-  open: 'st-identified',
-  mitigated: 'st-mitigated',
-  verified: 'st-verified',
-  accepted: 'st-accepted',
+  accepted: 'st-identified',
+  rejected: 'st-rejected',
   planned: 'st-mitigated',
   implemented: 'st-verified',
-  fixed: 'st-verified',
+}
+
+const TEST_ICONS: Record<UnitTest['status'], { icon: string; className: string; label: string }> = {
+  open: { icon: 'circle-large-outline', className: '', label: 'Not run yet' },
+  passed: { icon: 'pass', className: 'ok', label: 'Passed' },
+  failed: { icon: 'error', className: 'fail', label: 'Failed' },
 }
 
 function sourceLabel(source: string): string {
@@ -105,10 +108,9 @@ interface ItemCardProps {
   severity?: string
   meta?: ReactNode
   statuses?: string[]
-  extraFields?: Field[]
 }
 
-function ItemCard({ category, item, text, severity, meta, statuses, extraFields = [] }: ItemCardProps) {
+function ItemCard({ category, item, text, severity, meta, statuses }: ItemCardProps) {
   const [editing, setEditing] = useState(false)
   const status = 'status' in item ? item.status : undefined
   const source = sourceLabel(item.source) + (item.approval_id ? ` · proposal #${item.approval_id}` : '')
@@ -128,7 +130,7 @@ function ItemCard({ category, item, text, severity, meta, statuses, extraFields 
   if (editing) {
     return (
       <FieldForm
-        fields={[...CATEGORY_FIELDS[category], ...extraFields]}
+        fields={CATEGORY_FIELDS[category]}
         initial={item as unknown as Proposal}
         submitLabel="Save"
         onSubmit={async (payload) => {
@@ -175,42 +177,27 @@ function ItemCard({ category, item, text, severity, meta, statuses, extraFields 
   )
 }
 
-/** "T1: 2 of 3 tests passed", with a tick or a cross once the test has been run. */
-function TestResult({ test }: { test: SecurityTest }) {
-  const text = `${test.id}: ${test.result ?? 'Not run yet'}`
-  if (test.passed === null) return <div>{text}</div>
-  return (
-    <div className={test.passed ? 'ok' : 'fail'}>
-      <Codicon name={test.passed ? 'pass' : 'error'} /> {text}
-    </div>
-  )
-}
-
 function riskMeta(risk: Risk): ReactNode {
   const tags = [risk.cwe, risk.owasp, risk.stride].filter(Boolean)
-  return (
-    <>
-      {tags.length > 0 && <div className="risk-tags">{tags.join(' · ')}</div>}
-      {risk.status === 'accepted' && risk.rationale && <div>Accepted because: {risk.rationale}</div>}
-    </>
-  )
+  return tags.length > 0 ? <div className="risk-tags">{tags.join(' · ')}</div> : null
 }
 
 function vulnerabilityMeta(vulnerability: Vulnerability, state: SecurityState): ReactNode {
   const { id, file, line, cwe } = vulnerability
   const tags = [file && (line ? `${file}:${line}` : file), cwe].filter(Boolean)
-  const mitigations = state.mitigations.filter((m) => m.vulnerability_id === id).map((m) => m.id)
+  const mitigations = state.mitigations.filter((m) => m.vulnerability_id === id).map((m) => `${m.id} (${m.status})`)
   return (
     <>
       {tags.length > 0 && <div>{tags.join(' · ')}</div>}
       {mitigations.length > 0 && <div>Mitigations: {mitigations.join(', ')}</div>}
-      {state.tests
-        .filter((t) => t.vulnerability_ids.includes(id))
-        .map((t) => (
-          <TestResult key={t.id} test={t} />
-        ))}
     </>
   )
+}
+
+/** A vulnerability still to fix: accepted, and no fix for it implemented yet. */
+function toFix(vulnerability: Vulnerability, state: SecurityState): boolean {
+  const fixed = state.mitigations.some((m) => m.vulnerability_id === vulnerability.id && m.status === 'implemented')
+  return vulnerability.status === 'accepted' && !fixed
 }
 
 function mitigationMeta(mitigation: Mitigation): ReactNode {
@@ -232,7 +219,7 @@ function mitigationMeta(mitigation: Mitigation): ReactNode {
 
 // The shared security state (team mode): the human edits it directly; agent proposals are approved in chat.
 // Risks and assumptions come from the Threat Modeller, vulnerabilities and mitigations (approved fixes) from the
-// Code Reviewer, and security tests from the Test/Verifier.
+// Code Reviewer, and each unit test's latest result from the Test/Verifier.
 export function SecurityPanel() {
   const state = useSecurity((s) => s.state)
   const waiting = useAgents((s) => s.approvals.filter((a) => a.status === 'pending').length)
@@ -251,8 +238,8 @@ export function SecurityPanel() {
     )
   }
 
-  const openRisks = state.risks.filter((r) => r.status === 'open').length
-  const openVulnerabilities = state.vulnerabilities.filter((v) => v.status === 'open').length
+  const vulnerabilitiesToFix = state.vulnerabilities.filter((v) => toFix(v, state)).length
+  const failingTests = state.tests.filter((t) => t.status === 'failed').length
 
   return (
     <div className="sidebar-view">
@@ -267,10 +254,11 @@ export function SecurityPanel() {
 
       <div className="security-summary">
         <div className="summary-chips">
-          <span className={openRisks > 0 ? 'chip chip-warn' : 'chip'}>{openRisks} open risks</span>
-          <span className={openVulnerabilities > 0 ? 'chip chip-warn' : 'chip'}>
-            {openVulnerabilities} open vulnerabilities
+          <span className="chip">{state.risks.length} risks</span>
+          <span className={vulnerabilitiesToFix > 0 ? 'chip chip-warn' : 'chip'}>
+            {vulnerabilitiesToFix} vulnerabilities to fix
           </span>
+          <span className={failingTests > 0 ? 'chip chip-warn' : 'chip'}>{failingTests} failing tests</span>
           <button className={waiting > 0 ? 'chip chip-pending chip-button' : 'chip chip-button'} onClick={() => showRightTab('chat')}>
             {waiting} waiting for approval
           </button>
@@ -287,8 +275,6 @@ export function SecurityPanel() {
               text={risk.description}
               severity={risk.severity}
               meta={riskMeta(risk)}
-              statuses={['open', 'mitigated', 'verified', 'accepted']}
-              extraFields={[RATIONALE]}
             />
           ))}
         </Section>
@@ -320,7 +306,7 @@ export function SecurityPanel() {
               text={v.description}
               severity={v.severity}
               meta={vulnerabilityMeta(v, state)}
-              statuses={['open', 'fixed']}
+              statuses={['accepted', 'rejected']}
             />
           ))}
         </Section>
@@ -345,20 +331,31 @@ export function SecurityPanel() {
           ))}
         </Section>
 
-        <Section title="Security tests" from={AGENTS.verifier.name} icon="beaker" count={state.tests.length}>
-          {state.tests.map((t) => (
-            <div key={t.id} className="state-item">
-              <div className="state-item-head">
-                <span className="state-id">{t.id}</span>
-                {t.passed !== null && <Codicon name={t.passed ? 'pass' : 'error'} className={t.passed ? 'ok' : 'fail'} />}
-                <span className="state-text">{t.path}</span>
+        <Section
+          title="Unit tests"
+          from={AGENTS.verifier.name}
+          icon="beaker"
+          count={state.tests.length}
+          empty="No unit tests in this task."
+        >
+          {state.tests.map((t) => {
+            const result = TEST_ICONS[t.status]
+            return (
+              <div key={t.id} className="state-item">
+                <div className="state-item-head">
+                  <span className="state-id">{t.id}</span>
+                  <Codicon name={result.icon} className={result.className} title={result.label} />
+                  <span className="state-text">{t.name}</span>
+                </div>
+                <div className="state-meta">
+                  <div>
+                    {t.file} · {result.label}
+                  </div>
+                  {t.status === 'failed' && t.message && <div className="fail">{t.message}</div>}
+                </div>
               </div>
-              <div className="state-meta">
-                {t.vulnerability_ids.length > 0 && <div>Tests {t.vulnerability_ids.join(', ')}</div>}
-                <div>{t.result ?? 'Not run yet'}</div>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </Section>
       </div>
     </div>

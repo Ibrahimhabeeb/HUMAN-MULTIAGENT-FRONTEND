@@ -36,22 +36,19 @@ function ProposalView({ type, proposal: p }: { type: ActionType; proposal: Propo
     case 'mark_resolved':
       return (
         <>
-          <div className="proposal-meta">Mark {text('item_id')} as resolved</div>
+          <div className="proposal-meta">Mark {text('item_id')} as implemented</div>
           <p className="proposal-text">{text('reason')}</p>
         </>
       )
-    case 'propose_test': {
-      const tested = Array.isArray(p.vulnerability_ids) ? p.vulnerability_ids.join(', ') : ''
+    case 'propose_test':
       return (
         <>
           <div className="proposal-meta">
             <Codicon name="file" /> {text('path')}
-            {tested && ` · tests ${tested}`}
           </div>
           <CodeBlock code={text('content')} path={text('path')} language="python" />
         </>
       )
-    }
     case 'suggest_fix':
       return (
         <>
