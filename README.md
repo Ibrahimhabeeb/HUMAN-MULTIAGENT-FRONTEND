@@ -2,6 +2,21 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Study Sessions
+
+`src/api/client.ts` creates a random backend session and keeps its token under
+`secure-coding-room.session` in `sessionStorage`, not cookies or localStorage. Every study/workspace/chat/approval
+request sends `X-Session-Token`. The backend resolves the participant from that token.
+
+Refresh reuses the tab's token. An expired token returns to a fresh Start screen; mutating requests are not
+automatically replayed. Finish and Restart replace the revoked token with a fresh one, without deleting saved
+participant data. Pending setup remains memory-only until consent. The questionnaire's unsubmitted answers
+remain component state and are not autosaved.
+
+Open a fresh study tab for a new participant. Browsers can copy sessionStorage when duplicating existing tabs.
+
+Checks: `npm test`, `npm run build`, and `npm run test:study-browser` (starts an isolated test backend, no AI calls).
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)

@@ -7,6 +7,10 @@ import { MODE_NAMES } from '../lib/agents'
 import { useStudy } from '../store/study'
 import { StudyPage } from './StudyPage'
 
+const TASK_ICONS: Record<TaskId, string> = {
+  A: 'lock', B: 'folder-opened', C: 'comment-discussion', D: 'settings-gear', E: 'mail',
+}
+
 // Researcher: nothing is stored until the participant agrees on the consent screen.
 export function StartScreen({ state }: { state: StudyState }) {
   const busy = useStudy((s) => s.busy)
@@ -25,9 +29,9 @@ export function StartScreen({ state }: { state: StudyState }) {
           <div className="field">
             <label className="field-label" htmlFor="session-task">Task</label>
             <div className={`task-picker${busy ? ' disabled' : ''}`}>
-              <span className={`task-picker-icon task-${taskId.toLowerCase()}`}><Codicon name={taskId === 'A' ? 'lock' : 'folder-opened'} /></span>
+              <span className={`task-picker-icon task-${taskId.toLowerCase()}`}><Codicon name={TASK_ICONS[taskId]} /></span>
               <select className="task-select" id="session-task" value={taskId} disabled={busy} onChange={(event) => setTaskId(event.target.value as TaskId)}>
-                {state.available_tasks.map((task) => <option key={task.id} value={task.id}>{task.label}</option>)}
+                {state.available_tasks.map((task) => <option key={task.id} value={task.id}>{task.label} ({task.cwe})</option>)}
               </select>
               <Codicon name="chevron-down" className="task-picker-arrow" />
             </div>

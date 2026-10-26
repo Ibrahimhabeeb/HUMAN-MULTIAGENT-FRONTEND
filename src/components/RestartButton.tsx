@@ -1,5 +1,6 @@
 import { api } from '../api/client'
 import { ask } from '../store/dialog'
+import { saveEverything } from '../store/part'
 import { useStudy } from '../store/study'
 import { Codicon } from './Icons'
 
@@ -12,7 +13,10 @@ export function RestartButton({ withLabel = false }: { withLabel?: boolean }) {
       'Restart',
       true,
     )
-    if (ok) await useStudy.getState().run(api.restart)
+    if (ok) {
+      await saveEverything()
+      await useStudy.getState().run(api.restart)
+    }
   }
 
   return withLabel ? (

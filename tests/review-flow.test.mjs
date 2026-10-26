@@ -109,9 +109,40 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
       assert.doesNotMatch(render('single'), /team-progress/)
     })
 
+    await t.test('a Test/Verifier follow-up that proposed no test is not shown', () => {
+      const skipped = finished(job(13, 'verifier'))
+      globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, {
+        ...skipped, content: 'No new test is needed for V1.', data: { ...skipped.data, hidden: true },
+      }]
+      globalThis.reviewFixtures.agents.approvals = [finding]
+      const html = render()
+      assert.doesNotMatch(html, /No new test is needed/)
+      assert.match(html, /One vulnerability\./)
+    })
+
     await t.test('old review routes do not leave a redundant Verifier Continue button', () => {
       globalThis.reviewFixtures.agents.messages = [{ ...reviewed, data: { ...reviewed.data, route: ['reviewer', 'verifier'] } }, reviewReply]
       assert.doesNotMatch(render(), /hasn&#x27;t answered yet|>Continue<\/button>/)
+    })
+
+    await t.test('a Threat Modeller risk example uses the shared labelled code card', () => {
+      globalThis.reviewFixtures.agents.messages = [{
+        id: 30, role: 'agent', thread: 'team', content: 'Untrusted input reaches the query.',
+        data: {
+          agent: 'threat_modeller',
+          threat_example: {
+            path: 'app/auth.py', language: 'python',
+            code: 'def login(username):\n    return conn.execute(f"SELECT {username}")',
+          },
+        },
+        ts: timestamp,
+      }]
+      globalThis.reviewFixtures.agents.approvals = []
+      const html = render()
+      assert.match(html, /Illustrative risk example/)
+      assert.match(html, /app\/auth.py/)
+      assert.match(html, /Potentially unsafe pattern to recognise/)
+      assert.match(html, /code-copy/)
     })
   } finally {
     await server.close()
@@ -225,6 +256,27 @@ test('approval-triggered agent work runs concurrently and survives reload/reset'
         assert.deepEqual(calls, [])
       } finally {
         globalThis.reviewApi.threads = originalThreads
+      }
+    })
+
+    await t.test('approving a fix starts the Test/Verifier follow-up it queues', async () => {
+      store.getState().reset()
+      calls = []
+      requests = new Map()
+      backendMessages = [finished(job(60, 'reviewer'), fix)]
+      backendApprovals = [finding, fix]
+      await store.getState().load('team')
+      assert.deepEqual(calls, [])
+      const originalDecide = globalThis.reviewApi.decide
+      globalThis.reviewApi.decide = async () => {
+        backendMessages = [...backendMessages, job(61, 'verifier')]
+        return { ...fix, status: 'approved' }
+      }
+      try {
+        assert.equal(await store.getState().decide(fix.id, 'approve'), null)
+        assert.deepEqual(calls, [61])
+      } finally {
+        globalThis.reviewApi.decide = originalDecide
       }
     })
   } finally {

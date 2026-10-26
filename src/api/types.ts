@@ -1,7 +1,7 @@
 // The shapes the backend sends and receives.
 
 export type Mode = 'team' | 'single'
-export type TaskId = 'A' | 'B'
+export type TaskId = 'A' | 'B' | 'C' | 'D' | 'E'
 export type Screen = 'start' | 'information' | 'consent' | 'ide' | 'part_complete' | 'questionnaire' | 'thank_you'
 
 export interface PartInfo {
@@ -20,7 +20,7 @@ export interface StudyState {
   part: number | null
   task: { id: string; label: string } | null
   parts: PartInfo[]
-  available_tasks: Array<{ id: TaskId; label: string }>
+  available_tasks: Array<{ id: TaskId; label: string; cwe: string }>
 }
 
 export interface InformationContent {
@@ -45,7 +45,7 @@ export interface Message {
   role: 'human' | 'agent' | 'system'
   content: string
   data: {
-    agent?: Specialist // who wrote it, in the team conversation
+    agent?: Agent // who wrote it; team specialists or the single assistant
     reply_to?: number
     route?: Specialist[] // the agents that answer a developer message, in order
     reason?: string // why the Facilitator routed it to that agent
@@ -54,7 +54,13 @@ export interface Message {
     kind?: 'vulnerability_follow_up'
     status?: 'queued' | 'running' | 'failed' | 'complete'
     vulnerability_id?: string
+    hidden?: boolean // a Test/Verifier follow-up that proposed no test: kept for the researcher, not shown
     started_at?: number
+    threat_example?: {
+      path: string
+      code: string
+      language: string
+    }
   }
   ts: string
 }
@@ -88,6 +94,14 @@ export interface TurnResult {
   approvals: Approval[]
   next: Specialist | null // team mode: who answers next (api.next)
 }
+
+export type ChatStreamEvent =
+  | { type: 'message'; message: Message }
+  | { type: 'agent_start'; agent: Agent }
+  | { type: 'delta'; agent: Agent; content: string }
+  | { type: 'agent_complete'; agent: Agent; message: Message; approvals: Approval[] }
+  | { type: 'done'; next: Specialist | null }
+  | { type: 'error'; status: number; detail: string }
 
 export type Severity = 'Low' | 'Medium' | 'High' | 'Critical'
 export type HumanCategory = 'assumptions' | 'risks' | 'vulnerabilities' | 'mitigations'
@@ -168,14 +182,25 @@ export interface RunResult {
 }
 
 export interface Question {
+  number: number
   key: string
-  type: 'scale' | 'choice' | 'text'
+  type: 'scale' | 'number' | 'choice' | 'text'
   text: string
+  scale: RatingScale | null
+  allow_not_applicable: boolean
   options: string[]
+}
+
+export interface RatingScale {
+  min: number
+  max: number
+  min_label: string
+  max_label: string
 }
 
 export interface QuestionnaireSection {
   title: string
+  show_title: boolean
   intro: string | null
   asked_for: 'each_mode' | 'team' | 'once'
   questions: Question[]
@@ -183,7 +208,6 @@ export interface QuestionnaireSection {
 
 export interface QuestionnaireForm {
   version: string
-  scale: { min: number; max: number; min_label: string; max_label: string }
   sections: QuestionnaireSection[]
   modes: { mode: Mode; label: string }[]
   text_hint: string
@@ -194,5 +218,5 @@ export type Condition = Mode | 'none'
 export interface Answer {
   condition: Condition
   item: string
-  value: number | string
+  value: number | string | null
 }

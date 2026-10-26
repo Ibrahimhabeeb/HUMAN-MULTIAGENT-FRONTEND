@@ -6,6 +6,7 @@ import { useWorkspace } from '../store/workspace'
 import { Codicon, FileIcon } from './Icons'
 import { useDiagnostics } from '../store/diagnostics'
 import { watchDiagnostics } from '../monaco/diagnostics'
+import { watchVulnerabilities } from '../monaco/vulnerabilities'
 
 function revealTarget(instance: editor.IStandaloneCodeEditor) {
   const target = useDiagnostics.getState().target
@@ -21,6 +22,7 @@ export function EditorArea() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const target = useDiagnostics((s) => s.target)
   useEffect(watchDiagnostics, [])
+  useEffect(watchVulnerabilities, [])
   useEffect(() => {
     if (editorRef.current && target) revealTarget(editorRef.current)
   }, [target])

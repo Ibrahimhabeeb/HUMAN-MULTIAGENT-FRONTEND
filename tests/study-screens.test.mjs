@@ -7,7 +7,13 @@ import { createServer } from 'vite'
 
 const state = {
   screen: 'start', mode: 'team', participant: null, pilot: null, part: null, task: null, parts: [],
-  available_tasks: [{ id: 'A', label: 'authentication task' }, { id: 'B', label: 'file download task' }],
+  available_tasks: [
+    { id: 'A', label: 'authentication task', cwe: 'CWE-89' },
+    { id: 'B', label: 'file download task', cwe: 'CWE-22' },
+    { id: 'C', label: 'comment rendering task', cwe: 'CWE-79' },
+    { id: 'D', label: 'preferences import task', cwe: 'CWE-502' },
+    { id: 'E', label: 'account email update task', cwe: 'CWE-352' },
+  ],
 }
 const fixtures = {
   name: 'study-screen-fixtures', enforce: 'pre',
@@ -32,9 +38,10 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
     const { StudyPage } = await server.ssrLoadModule('/src/screens/StudyPage.tsx')
     const { ThankYouScreen } = await server.ssrLoadModule('/src/screens/ThankYouScreen.tsx')
     const { ComparisonSection } = await server.ssrLoadModule('/src/components/ComparisonSection.tsx')
+    const { QuestionnairePager } = await server.ssrLoadModule('/src/components/QuestionnairePager.tsx')
     const start = () => renderToStaticMarkup(createElement(StartScreen, { state }))
 
-    await t.test('setup has both tasks, both modes and the real researcher contact', () => {
+    await t.test('setup has all five CWE-labelled tasks, both modes and the real researcher contact', () => {
       const html = start()
       assert.match(html, /<h1>Secure Coding Room<\/h1>/)
       assert.match(html, /<select[^>]+class="task-select"[^>]+id="session-task"/)
@@ -42,6 +49,8 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.match(html, /codicon-chevron-down task-picker-arrow[^>]*aria-hidden="true"/)
       assert.match(html, /authentication task/)
       assert.match(html, /file download task/)
+      for (const task of state.available_tasks) assert.ok(html.includes(`${task.label} (${task.cwe})`))
+      assert.equal((html.match(/<option /g) ?? []).length, 5)
       assert.match(html, /aria-pressed="true"[^>]*>.*Team/)
       assert.match(html, /New participant/)
       assert.match(html, /New pilot participant/)
@@ -82,31 +91,50 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.match(html, />Finish /)
     })
 
-    await t.test('comparison shows only one statement with two independent optional rating groups', () => {
-      const section = { title: 'Both ways of working', asked_for: 'each_mode', intro: null, questions: [
-        { key: 'confidence', type: 'scale', text: 'I am confident that my final code is secure.' },
-        { key: 'control', type: 'scale', text: 'I felt in control of the decisions and the code.' },
+    await t.test('comparison shows one question at a time with its own scale and mode-specific wording', () => {
+      const section = { title: 'Confidence and usability', asked_for: 'each_mode', intro: null, questions: [
+        { number: 1, key: 'confidence', type: 'scale', text: 'I am confident that the code I completed with the {mode} meets the task requirements.', scale: { min: 1, max: 5, min_label: 'Strongly disagree', max_label: 'Strongly agree' }, allow_not_applicable: false, options: [] },
+        { number: 2, key: 'control', type: 'scale', text: 'I felt in control of the {mode}.', scale: { min: 1, max: 5, min_label: 'Strongly disagree', max_label: 'Strongly agree' }, allow_not_applicable: false, options: [] },
       ] }
-      const form = { scale: { min: 1, max: 7, min_label: 'Strongly disagree', max_label: 'Strongly agree' },
-        modes: [{ mode: 'team', label: 'Agent team (authentication task)' }, { mode: 'single', label: 'Single assistant (authentication task)' }] }
+      const form = { modes: [{ mode: 'team', label: 'Agent team (authentication task)' }, { mode: 'single', label: 'Single assistant (authentication task)' }] }
       const props = { section, form, valueOf: () => undefined, onAnswer: () => {}, onContinue: () => {}, busy: false }
       const render = (changes = {}) => renderToStaticMarkup(createElement(ComparisonSection, { ...props, ...changes }))
       const html = render()
-      assert.match(html, /Statement 1 of 2/)
-      assert.match(html, /I am confident that my final code is secure/)
+      assert.match(html, /Question 1 of 2/)
+      assert.match(html, /code I completed with the agent team meets the task requirements/)
+      assert.match(html, /code I completed with the single assistant meets the task requirements/)
       assert.doesNotMatch(html, /I felt in control/)
-      assert.equal((html.match(/type="radio"/g) ?? []).length, 14)
+      assert.equal((html.match(/type="radio"/g) ?? []).length, 10)
       assert.equal(new Set([...html.matchAll(/\bname="([^"]+)"/g)].map((m) => m[1])).size, 2)
       assert.doesNotMatch(html, /checked=""|rating-table/)
       assert.match(html, /disabled=""[^>]*>.*Back/)
       assert.match(html, />Skip /)
       assert.match(html, />Continue/)
-      const selected = render({ valueOf: (mode) => mode === 'team' ? 6 : 3 })
+      const selected = render({ valueOf: (mode) => mode === 'team' ? 4 : 3 })
       assert.equal((selected.match(/checked=""/g) ?? []).length, 2)
-      assert.match(selected, /<input(?=[^>]*value="6")(?=[^>]*checked="")[^>]*>/)
+      assert.match(selected, /<input(?=[^>]*value="4")(?=[^>]*checked="")[^>]*>/)
       assert.match(selected, /<input(?=[^>]*value="3")(?=[^>]*checked="")[^>]*>/)
       const disabled = render({ busy: true })
       assert.equal((disabled.match(/<fieldset[^>]+disabled=""/g) ?? []).length, 2)
+    })
+
+    await t.test('questionnaire pager shows two questions rather than a long form', () => {
+      const form = {
+        version: 'v1.2', text_hint: 'Do not include personal details.',
+        modes: [{ mode: 'team', label: 'Agent team (authentication task)' }, { mode: 'single', label: 'Single assistant (authentication task)' }],
+        sections: [{ title: 'Reliability and caution', show_title: false, intro: null, asked_for: 'each_mode', questions: [
+          { number: 1, key: 'vulnerability_risk_trust', type: 'scale', text: 'I trusted the {mode} to identify vulnerabilities and risks.', scale: { min: 1, max: 5, min_label: 'Strongly disagree', max_label: 'Strongly agree' }, allow_not_applicable: false, options: [] },
+          { number: 2, key: 'mitigation_trust', type: 'scale', text: 'I trusted the {mode} to recommend mitigations.', scale: { min: 1, max: 5, min_label: 'Strongly disagree', max_label: 'Strongly agree' }, allow_not_applicable: false, options: [] },
+          { number: 3, key: 'wariness', type: 'scale', text: 'I was wary of the {mode}.', scale: { min: 1, max: 7, min_label: 'Not at all', max_label: 'Extremely' }, allow_not_applicable: false, options: [] },
+        ] }],
+      }
+      const html = renderToStaticMarkup(createElement(QuestionnairePager, { form }))
+      assert.match(html, /Questions 1–2/)
+      assert.match(html, /identify vulnerabilities and risks/)
+      assert.match(html, /recommend mitigations/)
+      assert.doesNotMatch(html, /I was wary/)
+      assert.equal((html.match(/class="question-card"/g) ?? []).length, 2)
+      assert.match(html, /Page 1 of 2/)
     })
   } finally {
     delete globalThis.studyScreenState

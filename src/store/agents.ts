@@ -8,10 +8,11 @@ import { showError, useUi } from './ui'
 import { useWorkspace } from './workspace'
 
 // The conversation of the current part and the proposals waiting for the human's decision.
-// In team mode each developer message has a route (e.g. Planner, then Threat Modeller); every call to the
-// backend gets one agent's answer, and the next agent on the route is asked straight away.
+// In team mode each developer message has a route (e.g. Planner, then Threat Modeller); their replies stream in
+// that order in one request, while follow-up jobs continue to use their own requests.
 interface AgentStore {
   messages: Message[]
+  streaming: Message[] // transient agent messages receiving real model deltas
   sending: string | null // the developer's message until the backend has saved it
   working: Agent | 'routing' | null // who is answering right now
   turnError: string | null
@@ -31,6 +32,7 @@ export const useAgents = create<AgentStore>((set, get) => {
   let poll: ReturnType<typeof setTimeout> | undefined
   const inFlight = new Set<number>()
   const failed = new Set<number>()
+  let streamId = -1
 
   function merge<T extends { id: number }>(old: T[], incoming: T[]): T[] {
     return [...new Map([...old, ...incoming].map((item) => [item.id, item])).values()].sort((a, b) => a.id - b.id)
@@ -56,6 +58,17 @@ export const useAgents = create<AgentStore>((set, get) => {
     if (waiting > 0) useUi.getState().toast(`${waiting} new proposal(s) waiting for your approval.`)
     // Suggested risks are already in the security state.
     if (result.approvals.some((a) => a.status === 'suggested')) void useSecurity.getState().load()
+  }
+
+  function appendDelta(agent: Agent, content: string) {
+    const streaming = [...get().streaming]
+    for (let index = streaming.length - 1; index >= 0; index--) {
+      if (streaming[index].data.agent === agent) {
+        streaming[index] = { ...streaming[index], content: streaming[index].content + content }
+        set({ streaming })
+        return
+      }
+    }
   }
 
   async function refresh(mode: Mode, version: number) {
@@ -135,13 +148,14 @@ export const useAgents = create<AgentStore>((set, get) => {
 
   async function recover(error: unknown, mode: Mode, version: number) {
     if (version !== epoch) return
-    set({ turnError: error instanceof Error ? error.message : String(error) })
+    set({ streaming: [], turnError: error instanceof Error ? error.message : String(error) })
     showError(error)
     await get().load(mode) // shows whatever was saved, e.g. a message whose answer failed
   }
 
   return {
     messages: [],
+    streaming: [],
     sending: null,
     working: null,
     turnError: null,
@@ -164,7 +178,7 @@ export const useAgents = create<AgentStore>((set, get) => {
       clearTimeout(poll)
       inFlight.clear()
       failed.clear()
-      set({ messages: [], sending: null, working: null, turnError: null, approvals: [] })
+      set({ messages: [], streaming: [], sending: null, working: null, turnError: null, approvals: [] })
     },
 
     retryFollowUp: (id) => {
@@ -176,20 +190,54 @@ export const useAgents = create<AgentStore>((set, get) => {
       const version = epoch
       const first = !get().messages.some((m) => m.role === 'human')
       set({ sending: content, turnError: null, working: mode === 'single' ? 'assistant' : first ? 'planner' : 'routing' })
+      let saved = false
+      let next: Specialist | null = null
       try {
-        const result = await api.send(THREAD[mode], content)
+        await api.sendStream(THREAD[mode], content, (event) => {
+          if (version !== epoch) return
+          switch (event.type) {
+            case 'message':
+              saved = true
+              set({ messages: mergeMessages([event.message]), sending: null })
+              break
+            case 'agent_start':
+              set({
+                working: event.agent,
+                streaming: [
+                  ...get().streaming,
+                  {
+                    id: streamId--,
+                    thread: THREAD[mode],
+                    role: 'agent',
+                    content: '',
+                    data: { agent: event.agent },
+                    ts: new Date().toISOString(),
+                  },
+                ],
+              })
+              break
+            case 'delta':
+              appendDelta(event.agent, event.content)
+              break
+            case 'agent_complete':
+              set({ streaming: get().streaming.filter((message) => message.data.agent !== event.agent) })
+              add({ messages: [event.message], approvals: event.approvals, next: null })
+              break
+            case 'done':
+              next = event.next
+              break
+          }
+        })
         if (version !== epoch) return false
-        add(result)
-        set({ sending: null })
-        await follow(result.next, version)
+        await follow(next, version)
         return true
       } catch (error) {
         await recover(error, mode, version)
         if (version !== epoch) return false
-        return get().messages.at(-1)?.content === content // saved, even if no answer came back
+        return saved || get().messages.at(-1)?.content === content // saved, even if no answer came back
       } finally {
         if (version === epoch) {
-          set({ sending: null, working: null })
+          set({ sending: null, streaming: [], working: null })
           pump()
         }
       }
@@ -246,7 +294,9 @@ export const useAgents = create<AgentStore>((set, get) => {
           if (decided.action_type === 'propose_test') await useWorkspace.getState().load()
           // Team mode: everything approved changes the state (an approved fix becomes a mitigation).
           if (useSecurity.getState().state) await useSecurity.getState().load()
-          if (decided.action_type === 'propose_vulnerability') await get().load('team')
+          // An approved finding queues the Code Reviewer's fix; an approved fix queues the Test/Verifier's test.
+          const queuesFollowUp = ['propose_vulnerability', 'suggest_fix'].includes(decided.action_type)
+          if (activeMode === 'team' && queuesFollowUp) await get().load('team')
         }
         return null
       } catch (error) {

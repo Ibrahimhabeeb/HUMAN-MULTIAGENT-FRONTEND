@@ -9,6 +9,7 @@ import { useTests } from '../store/tests'
 import { useUi } from '../store/ui'
 import { useWorkspace } from '../store/workspace'
 import { ApprovalCard } from './Approvals'
+import { CodeBlock } from './CodeBlock'
 import { Codicon } from './Icons'
 import { Markdown } from './Markdown'
 
@@ -107,6 +108,7 @@ function AgentMessage({ message }: { message: Message }) {
   const proposals = all.filter((a) => ids.includes(a.id))
   const risks = proposals.filter((a) => a.status === 'suggested')
   const approvals = proposals.filter((a) => a.status !== 'suggested')
+  const threatExample = message.data.threat_example
 
   return (
     <div className="msg agent">
@@ -116,7 +118,20 @@ function AgentMessage({ message }: { message: Message }) {
         <span className="msg-time">{formatTime(message.ts)}</span>
       </div>
       <div className="msg-body">
-        <Markdown text={message.content} />
+        {message.content ? <Markdown text={message.content} /> : <div className="thinking"><span /><span /><span /></div>}
+        {threatExample && (
+          <section className="card threat-example-card" aria-label="Illustrative risk example">
+            <div className="card-head">
+              <Codicon name="shield" />
+              <div className="card-title">
+                <div className="card-title-main">Illustrative risk example</div>
+                <div className="card-sub">{threatExample.path}</div>
+              </div>
+            </div>
+            <CodeBlock code={threatExample.code} language={threatExample.language} path={threatExample.path} />
+            <div className="card-note"><Codicon name="warning" /> Potentially unsafe pattern to recognise — not code to use as a solution.</div>
+          </section>
+        )}
         {approvals.map((approval) => (
           <ApprovalCard key={approval.id} approval={approval} />
         ))}
@@ -277,6 +292,8 @@ export function ChatView({ mode }: { mode: Mode }) {
   const messages = useAgents((s) => s.messages)
   const approvals = useAgents((s) => s.approvals)
   const sending = useAgents((s) => s.sending)
+  // A few lightweight test stores predate streaming; the live store always provides this array.
+  const streaming = useAgents((s) => s.streaming ?? [])
   const working = useAgents((s) => s.working)
   const turnError = useAgents((s) => s.turnError)
   const vulnerabilities = useSecurity((s) => s.state?.vulnerabilities)
@@ -290,11 +307,13 @@ export function ChatView({ mode }: { mode: Mode }) {
   const hasApprovedVulnerability = Boolean(vulnerabilities?.length) || approvals.some(
     (a) => a.action_type === 'propose_vulnerability' && a.status === 'approved',
   )
-  const visible = messages.filter((m) => !(m.role === 'system' && m.content === NO_VULNERABILITIES_NOTICE && hasApprovedVulnerability))
+  const visible = messages.filter((m) =>
+    !m.data.hidden && !(m.role === 'system' && m.content === NO_VULNERABILITIES_NOTICE && hasApprovedVulnerability),
+  )
 
   useEffect(() => {
     if (nearBottom.current || sending) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [messages, approvals, sending, working])
+  }, [messages, streaming, approvals, sending, working])
 
   return (
     <>
@@ -304,7 +323,7 @@ export function ChatView({ mode }: { mode: Mode }) {
         const element = event.currentTarget
         nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
       }}>
-        {messages.length === 0 && !sending && (
+        {messages.length === 0 && streaming.length === 0 && !sending && (
           <div className="chat-empty">
             What are you working on?
           </div>
@@ -323,6 +342,7 @@ export function ChatView({ mode }: { mode: Mode }) {
             </div>
           ),
         )}
+        {streaming.map((message) => <AgentMessage key={message.id} message={message} />)}
         {unattached.length > 0 && (
           <div className="chat-proposals">
             {unattached.map((approval) => (
@@ -330,7 +350,7 @@ export function ChatView({ mode }: { mode: Mode }) {
             ))}
           </div>
         )}
-        {working && <Waiting text={sending} working={working} />}
+        {working && streaming.length === 0 && <Waiting text={sending} working={working} />}
         {!working && (unanswered || turnError) && (
           <div className={`msg system continue-bar${turnError ? ' chat-error' : ''}`} role={turnError ? 'alert' : 'status'}>
             <Codicon name={turnError ? 'warning' : 'info'} />

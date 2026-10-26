@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '../api/client'
+import { ApiError, api } from '../api/client'
 import type { StudyState } from '../api/types'
 import { showError } from './ui'
 
@@ -31,6 +31,13 @@ export const useStudy = create<StudyStore>((set) => ({
       return true
     } catch (error) {
       showError(error)
+      if (error instanceof ApiError && error.status === 401) {
+        try {
+          set({ state: await api.state() })
+        } catch (refreshError) {
+          showError(refreshError)
+        }
+      }
       return false
     } finally {
       set({ busy: false })
