@@ -118,23 +118,24 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.equal((disabled.match(/<fieldset[^>]+disabled=""/g) ?? []).length, 2)
     })
 
-    await t.test('questionnaire pager shows two questions rather than a long form', () => {
+    await t.test('questionnaire pager shows one text-scale question at a time', () => {
       const form = {
-        version: 'v1.2', text_hint: 'Do not include personal details.',
+        version: 'v1.3', text_hint: 'Do not include personal details.',
         modes: [{ mode: 'team', label: 'Agent team (authentication task)' }, { mode: 'single', label: 'Single assistant (authentication task)' }],
         sections: [{ title: 'Reliability and caution', show_title: false, intro: null, asked_for: 'each_mode', questions: [
-          { number: 1, key: 'vulnerability_risk_trust', type: 'scale', text: 'I trusted the {mode} to identify vulnerabilities and risks.', scale: { min: 1, max: 5, min_label: 'Strongly disagree', max_label: 'Strongly agree' }, allow_not_applicable: false, options: [] },
-          { number: 2, key: 'mitigation_trust', type: 'scale', text: 'I trusted the {mode} to recommend mitigations.', scale: { min: 1, max: 5, min_label: 'Strongly disagree', max_label: 'Strongly agree' }, allow_not_applicable: false, options: [] },
-          { number: 3, key: 'wariness', type: 'scale', text: 'I was wary of the {mode}.', scale: { min: 1, max: 7, min_label: 'Not at all', max_label: 'Extremely' }, allow_not_applicable: false, options: [] },
+          { number: 1, key: 'vulnerability_risk_trust', type: 'choice', text: 'I trusted the {mode} to identify vulnerabilities and risks.', scale: null, allow_not_applicable: false, options: ['Strongly disagree', 'Disagree', 'Neither agree nor disagree', 'Agree', 'Strongly agree'] },
+          { number: 2, key: 'mitigation_trust', type: 'choice', text: 'I trusted the {mode} to recommend mitigations.', scale: null, allow_not_applicable: false, options: ['Strongly disagree', 'Disagree', 'Neither agree nor disagree', 'Agree', 'Strongly agree'] },
+          { number: 3, key: 'wariness', type: 'choice', text: 'I was wary of the {mode}.', scale: null, allow_not_applicable: false, options: ['Strongly disagree', 'Disagree', 'Neither agree nor disagree', 'Agree', 'Strongly agree'] },
         ] }],
       }
       const html = renderToStaticMarkup(createElement(QuestionnairePager, { form }))
-      assert.match(html, /Questions 1–2/)
+      assert.match(html, /Question 1 of 3/)
       assert.match(html, /identify vulnerabilities and risks/)
-      assert.match(html, /recommend mitigations/)
+      assert.match(html, /Strongly disagree/)
+      assert.match(html, /Strongly agree/)
       assert.doesNotMatch(html, /I was wary/)
-      assert.equal((html.match(/class="question-card"/g) ?? []).length, 2)
-      assert.match(html, /Page 1 of 2/)
+      assert.equal((html.match(/class="question-card"/g) ?? []).length, 1)
+      assert.match(html, /Page 1 of 3/)
     })
   } finally {
     delete globalThis.studyScreenState

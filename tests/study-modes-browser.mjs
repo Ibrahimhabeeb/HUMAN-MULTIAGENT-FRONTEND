@@ -184,8 +184,8 @@ try {
     const form = await response.json()
     const questions = form.sections.flatMap((section) => section.questions)
     const pager = page.locator('.questionnaire-pager')
-    await expect(pager).toContainText('Questions 1–2')
-    await expect(pager.locator('.question-card')).toHaveCount(2)
+    await expect(pager).toContainText('Question 1 of 21')
+    await expect(pager.locator('.question-card')).toHaveCount(1)
     await expect(pager).not.toContainText('Reliability and caution')
     await expect(pager).not.toContainText('/100')
     await expect(pager.getByRole('button', { name: 'Back', exact: true })).toBeDisabled()
@@ -196,44 +196,35 @@ try {
     }
     await page.setViewportSize({ width: 1440, height: 960 })
     const cards = pager.locator('.question-card')
-    await cards.nth(0).locator('.mode-answer').nth(0).getByRole('button', { name: '4', exact: true }).click()
-    await cards.nth(0).locator('.mode-answer').nth(1).getByRole('button', { name: '3', exact: true }).click()
-    await pager.getByRole('button', { name: 'Next questions', exact: true }).click()
-    await expect(pager).toContainText('Questions 3–4')
+    await cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'Very confident', exact: true }).click()
+    await cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Agree', exact: true }).click()
+    await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 2 of 21')
     await pager.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect(cards.nth(0).locator('.mode-answer').nth(0).getByRole('button', { name: '4', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await expect(cards.nth(0).locator('.mode-answer').nth(1).getByRole('button', { name: '3', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await pager.getByRole('button', { name: 'Next questions', exact: true }).click()
-    for (let index = 0; index < 2; index++) await pager.getByRole('button', { name: 'Next questions', exact: true }).click()
-    await expect(pager).toContainText('Questions 7–8')
-    const setRange = async (card, answerIndex, value) => card.locator('input[type="range"]').nth(answerIndex).evaluate((input, next) => {
-      input.value = String(next)
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-    }, value)
-    await setRange(cards.nth(1), 0, 25)
-    await setRange(cards.nth(1), 1, 75)
-    await pager.getByRole('button', { name: 'Next questions', exact: true }).click()
-    await expect(pager).toContainText('Questions 9–10')
-    await setRange(cards.nth(0), 0, 35)
-    await setRange(cards.nth(0), 1, 65)
-    await pager.getByRole('button', { name: 'Next questions', exact: true }).click()
-    await expect(pager).toContainText('Questions 11–12')
-    await cards.nth(0).getByRole('button', { name: '4', exact: true }).click()
-    await cards.nth(1).getByRole('button', { name: 'Not applicable', exact: true }).click()
-    for (let index = 0; index < 3; index++) await pager.getByRole('button', { name: 'Next questions', exact: true }).click()
-    await expect(pager).toContainText('Questions 17–17')
+    await expect(cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'Very confident', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Agree', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    for (let index = 0; index < 7; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 8 of 21')
+    await cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'A moderate amount', exact: true }).click()
+    await cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'A great deal', exact: true }).click()
+    for (let index = 0; index < 3; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 11 of 21')
+    await cards.getByRole('button', { name: 'Strongly agree', exact: true }).click()
+    await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await cards.getByRole('button', { name: 'Not applicable', exact: true }).click()
+    for (let index = 0; index < 9; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 21 of 21')
+    await cards.locator('textarea').fill('The shared security state was useful.')
     await expect(pager.getByRole('button', { name: 'Submit answers', exact: true })).toBeVisible()
     return {
       answers: [
-        { condition: 'team', item: questions[0].key, value: 4 },
-        { condition: 'single', item: questions[0].key, value: 3 },
-        { condition: 'team', item: questions[7].key, value: 25 },
-        { condition: 'single', item: questions[7].key, value: 75 },
-        { condition: 'team', item: questions[8].key, value: 35 },
-        { condition: 'single', item: questions[8].key, value: 65 },
-        { condition: 'team', item: questions[10].key, value: 4 },
+        { condition: 'team', item: questions[0].key, value: 'Very confident' },
+        { condition: 'single', item: questions[0].key, value: 'Agree' },
+        { condition: 'team', item: questions[7].key, value: 'A moderate amount' },
+        { condition: 'single', item: questions[7].key, value: 'A great deal' },
+        { condition: 'team', item: questions[10].key, value: 'Strongly agree' },
         { condition: 'team', item: questions[11].key, value: 'Not applicable' },
+        { condition: 'none', item: questions[20].key, value: 'The shared security state was useful.' },
       ],
       skipped: questions[1].key,
     }
@@ -310,7 +301,7 @@ try {
     await finishPart()
     await expect(page.getByRole('heading', { name: 'Questionnaire', exact: true })).toBeVisible()
     assert.equal((await state()).screen, 'questionnaire')
-    await expect(page.getByRole('button', { name: 'Submit answers', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next question', exact: true })).toBeVisible()
     const comparisonAnswers = await checkComparison(taskId)
     await page.getByRole('button', { name: 'Submit answers', exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText('cannot change your answers or withdraw your study data')

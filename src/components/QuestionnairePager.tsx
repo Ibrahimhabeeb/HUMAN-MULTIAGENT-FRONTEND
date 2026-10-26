@@ -121,7 +121,8 @@ export function QuestionnairePager({ form }: { form: QuestionnaireForm }) {
   const heading = useRef<HTMLDivElement>(null)
   const busy = useStudy((state) => state.busy)
   const entries = useMemo<Entry[]>(() => form.sections.flatMap((section) => section.questions.map((question) => ({ section, question }))), [form])
-  const pages = useMemo(() => Array.from({ length: Math.ceil(entries.length / 2) }, (_, index) => entries.slice(index * 2, index * 2 + 2)), [entries])
+  // One construct at a time keeps the comparison focused, while still collecting the paired mode responses together.
+  const pages = useMemo(() => entries.map((entry) => [entry]), [entries])
   const page = pages[pageIndex] ?? []
   const answeredCount = Object.keys(answers).length
 
@@ -156,7 +157,7 @@ export function QuestionnairePager({ form }: { form: QuestionnaireForm }) {
   return (
     <div className="questionnaire-pager">
       <div className="questionnaire-progress" ref={heading} tabIndex={-1}>
-        <div><span className="eyebrow">Questionnaire</span><strong aria-live="polite">Questions {page[0]?.question.number}–{page[page.length - 1]?.question.number}</strong></div>
+        <div><span className="eyebrow">Questionnaire</span><strong aria-live="polite">Question {page[0]?.question.number} of {entries.length}</strong></div>
         <div className="questionnaire-progress-right"><span>{answeredCount} answered</span><progress aria-label="Questionnaire progress" max={pages.length} value={pageIndex + 1} /></div>
       </div>
 
@@ -168,7 +169,7 @@ export function QuestionnairePager({ form }: { form: QuestionnaireForm }) {
 
       <div className="questionnaire-pager-actions">
         <button className="btn secondary" type="button" disabled={busy || pageIndex === 0} onClick={() => move(pageIndex - 1)}>Back</button>
-        <div><span>Page {pageIndex + 1} of {pages.length}</span>{pageIndex === pages.length - 1 ? <button className="btn primary" type="button" disabled={busy} onClick={submit}>Submit answers</button> : <button className="btn primary" type="button" disabled={busy} onClick={() => move(pageIndex + 1)}>Next questions</button>}</div>
+        <div><span>Page {pageIndex + 1} of {pages.length}</span>{pageIndex === pages.length - 1 ? <button className="btn primary" type="button" disabled={busy} onClick={submit}>Submit answers</button> : <button className="btn primary" type="button" disabled={busy} onClick={() => move(pageIndex + 1)}>Next question</button>}</div>
       </div>
     </div>
   )

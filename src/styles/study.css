@@ -1064,11 +1064,16 @@ button.state-card {
 .question-prompt { min-height: 52px; margin: 7px 0 13px; color: var(--fg-bright); font-size: 14px; line-height: 1.45; }
 .question-prompt { min-height: 0; font-size: 16px; }
 .question-card .scale-buttons,
-.question-card .choice-buttons { display: flex; width: 100%; gap: 6px; }
-.question-card .scale-buttons button { flex: 1 1 28px; min-width: 0; }
-.question-card .choice-buttons { flex-wrap: wrap; }
-.question-card .choice-buttons button { flex: 1 1 135px; min-height: 36px; }
-.question-card .scale-buttons .not-applicable { flex: 1 1 100%; }
+.question-card .choice-buttons { display: grid; width: 100%; gap: 7px; }
+.question-card .scale-buttons button,
+.question-card .choice-buttons button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 42px;
+  padding: 8px 12px;
+  text-align: left;
+}
 .scale-endpoints { display: flex; justify-content: space-between; gap: 10px; margin-top: 8px; color: var(--fg-muted); font-size: 11px; }
 .scale-endpoints span:last-child { text-align: right; }
 .number-answer-range { display: grid; gap: 10px; }
