@@ -19,6 +19,7 @@ export interface StudyState {
   pilot: boolean | null
   part: number | null
   task: { id: string; label: string } | null
+  needs_next_task: boolean
   parts: PartInfo[]
   available_tasks: Array<{ id: TaskId; label: string; cwe: string }>
 }

@@ -171,6 +171,7 @@ export const api = {
   decline: () => request<StudyState>('POST', '/study/decline'),
   consent: (version: string) => request<StudyState>('POST', '/study/consent', { consent_version: version }),
   setMode: (mode: Mode) => request<StudyState>('POST', '/study/mode', { mode }),
+  startPartTwo: (taskId: TaskId) => request<StudyState>('POST', '/study/part-two', { task_id: taskId }),
   done: () => request<StudyState>('POST', '/study/done'),
   finish: () => request<StudyState>('POST', '/study/finish'),
   restart: () => request<StudyState>('POST', '/study/restart'),

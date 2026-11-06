@@ -197,12 +197,12 @@ try {
     await page.setViewportSize({ width: 1440, height: 960 })
     const cards = pager.locator('.question-card')
     await cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'Very confident', exact: true }).click()
-    await cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Agree', exact: true }).click()
+    await cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Very confident', exact: true }).click()
     await pager.getByRole('button', { name: 'Next question', exact: true }).click()
     await expect(pager).toContainText('Question 2 of 21')
     await pager.getByRole('button', { name: 'Back', exact: true }).click()
     await expect(cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'Very confident', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await expect(cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Agree', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Very confident', exact: true })).toHaveAttribute('aria-pressed', 'true')
     for (let index = 0; index < 7; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
     await expect(pager).toContainText('Question 8 of 21')
     await cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'A moderate amount', exact: true }).click()
@@ -219,7 +219,7 @@ try {
     return {
       answers: [
         { condition: 'team', item: questions[0].key, value: 'Very confident' },
-        { condition: 'single', item: questions[0].key, value: 'Agree' },
+        { condition: 'single', item: questions[0].key, value: 'Very confident' },
         { condition: 'team', item: questions[7].key, value: 'A moderate amount' },
         { condition: 'single', item: questions[7].key, value: 'A great deal' },
         { condition: 'team', item: questions[10].key, value: 'Strongly agree' },
@@ -241,6 +241,7 @@ try {
   ]
   const selectedTasks = new Set((process.env.STUDY_BROWSER_TASKS ?? '').split(',').filter(Boolean))
   for (const [taskId, firstMode, taskLabel, source] of taskRuns.filter(([taskId]) => selectedTasks.size === 0 || selectedTasks.has(taskId))) {
+    const secondTaskId = { A: 'B', B: 'A', C: 'D', D: 'E', E: 'C' }[taskId]
     await page.goto(origin)
     await expect(page.getByRole('button', { name: 'New pilot participant', exact: true })).toBeVisible({ timeout: 30000 })
     await page.getByLabel('Task', { exact: true }).selectOption(taskId)
@@ -283,16 +284,23 @@ try {
     await expect(page.locator('.problem-text').filter({ hasText: 'test_first_mode' })).toBeVisible()
     await finishPart()
     await expect(page.getByRole('heading', { name: 'Part 1 is finished', exact: true })).toBeVisible()
-    await expect(page.locator('.lead')).toContainText(taskLabel)
     await checkScreenLayout(`task-${taskId}-mode-handoff`)
     const secondMode = firstMode === 'team' ? 'single' : 'team'
     const nextName = secondMode === 'team' ? 'Agent team' : 'Single assistant'
-    await page.getByRole('button', { name: `Continue with ${nextName}`, exact: true }).click()
+    await expect(page.locator('.lead')).toContainText(nextName)
+    const handoff = await state()
+    assert.equal(handoff.task, null)
+    assert.deepEqual(handoff.parts, [])
+    assert.equal(handoff.available_tasks.some((task) => task.id === taskId), false)
+    const taskTwo = page.getByLabel('Part 2 task', { exact: true })
+    await expect(taskTwo).not.toHaveValue(taskId)
+    await taskTwo.selectOption(secondTaskId)
+    await page.getByRole('button', { name: `Start Part 2 with ${nextName}`, exact: true }).click()
     await expect(page.locator('.command-center')).toContainText(`Part 2 of 2`)
-    await expect(page.locator('.command-center')).toContainText(taskLabel)
+    await expect(page.locator('.command-center')).toContainText((await state()).task.label)
     await expect(page.locator('.command-center')).toContainText(nextName)
     const second = await state()
-    assert.deepEqual(second.parts.map((part) => part.task_id), [taskId, taskId])
+    assert.deepEqual(second.parts.map((part) => part.task_id), [secondTaskId])
     assert.equal((await sessionRequest('get', `${origin}/api/workspace/files/tests/test_first_mode.py`)).status(), 404)
     await expect(page.locator('.test-summary')).toHaveCount(0)
     await page.locator('.titlebar').getByRole('button', { name: 'Run tests', exact: true }).click()

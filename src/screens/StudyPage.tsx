@@ -3,7 +3,7 @@ import { Codicon } from '../components/Icons'
 import { RestartButton } from '../components/RestartButton'
 import { useStudy } from '../store/study'
 
-const STEPS = ['Information', 'Consent', 'Coding sessions', 'Questionnaire']
+const STEPS = ['Information', 'Consent', 'Coding tasks', 'Questionnaire']
 const STEP_FOR = { start: -1, information: 0, consent: 1, ide: 2, part_complete: 2, questionnaire: 3, thank_you: 4 }
 
 // The frame of every screen outside the IDE.

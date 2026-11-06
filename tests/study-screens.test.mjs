@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react'
 import { createServer } from 'vite'
 
 const state = {
-  screen: 'start', mode: 'team', participant: null, pilot: null, part: null, task: null, parts: [],
+  screen: 'start', mode: 'team', participant: null, pilot: null, part: null, task: null, parts: [], needs_next_task: false,
   available_tasks: [
     { id: 'A', label: 'authentication task', cwe: 'CWE-89' },
     { id: 'B', label: 'file download task', cwe: 'CWE-22' },
@@ -35,6 +35,7 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
   const server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-study-screen-tests', plugins: [fixtures, react()], server: { middlewareMode: true, hmr: false, ws: false } })
   try {
     const { StartScreen } = await server.ssrLoadModule('/src/screens/StartScreen.tsx')
+    const { PartCompleteScreen } = await server.ssrLoadModule('/src/screens/PartCompleteScreen.tsx')
     const { StudyPage } = await server.ssrLoadModule('/src/screens/StudyPage.tsx')
     const { ThankYouScreen } = await server.ssrLoadModule('/src/screens/ThankYouScreen.tsx')
     const { ComparisonSection } = await server.ssrLoadModule('/src/components/ComparisonSection.tsx')
@@ -69,6 +70,20 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.match(html, /class="task-picker disabled"/)
       assert.equal((html.match(/<button[^>]+disabled=""/g) ?? []).length, 4)
       globalThis.studyScreenState.busy = false
+    })
+
+    await t.test('task-two handoff shows the alternate mode and excludes the finished task', () => {
+      const handoff = { ...state, screen: 'part_complete', participant: 'P01', mode: 'team', part: 1,
+        task: null, needs_next_task: true, available_tasks: state.available_tasks.filter((task) => task.id !== 'A') }
+      globalThis.studyScreenState.state = handoff
+      const html = renderToStaticMarkup(createElement(PartCompleteScreen, { state: handoff }))
+      assert.match(html, /Next: Single assistant/)
+      assert.match(html, /Part 2 task/)
+      assert.doesNotMatch(html, /authentication task/)
+      assert.match(html, /file download task/)
+      assert.match(html, /Start Part 2 with Single assistant/)
+      assert.match(html, /disabled=""/)
+      globalThis.studyScreenState.state = state
     })
 
     await t.test('the current study phase is announced without adding navigation actions', () => {
