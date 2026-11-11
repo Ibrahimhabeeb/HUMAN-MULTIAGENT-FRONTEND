@@ -1,7 +1,7 @@
 // The shapes the backend sends and receives.
 
 export type Mode = 'team' | 'single'
-export type TaskId = 'A' | 'B' | 'C' | 'D' | 'E'
+export type TaskId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
 export type Screen = 'start' | 'information' | 'consent' | 'ide' | 'part_complete' | 'questionnaire' | 'thank_you'
 
 export interface PartInfo {
@@ -35,6 +35,10 @@ export interface ConsentContent extends InformationContent {
 
 export type FsNode = { type: 'folder' } | { type: 'file'; content: string }
 export type FileMap = Record<string, FsNode>
+
+export interface CompletionResult {
+  items: Array<{ name: string; type: string; description: string }>
+}
 
 export type Specialist = 'planner' | 'threat_modeller' | 'reviewer' | 'verifier'
 export type Agent = Specialist | 'assistant'

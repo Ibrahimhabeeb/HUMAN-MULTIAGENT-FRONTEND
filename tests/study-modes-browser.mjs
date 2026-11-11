@@ -141,12 +141,12 @@ try {
       await task.press('Space')
       await page.keyboard.press('End')
       await page.keyboard.press('Enter')
-      await expect(task).toHaveValue('E')
-      await expect(page.locator('.task-picker-icon.task-e .codicon-mail')).toBeVisible()
+      await expect(task).toHaveValue('G')
+      await expect(page.locator('.task-picker-icon.task-g .codicon-list-unordered')).toBeVisible()
       await task.press('Space')
       await page.keyboard.press('Home')
       await page.keyboard.press('Escape')
-      await expect(task).toHaveValue('E')
+      await expect(task).toHaveValue('G')
       await task.press('Space')
       await page.keyboard.press('Home')
       await page.keyboard.press('Enter')
@@ -155,11 +155,12 @@ try {
       for (const width of [1440, 768, 390, 320]) {
         await page.setViewportSize({ width, height: 960 })
         await task.click()
-        await expect(page.getByRole('option')).toHaveCount(5)
+        await expect(page.getByRole('option')).toHaveCount(7)
         for (const [label, cwe] of [
           ['authentication task', 'CWE-89'], ['file download task', 'CWE-22'],
           ['comment rendering task', 'CWE-79'], ['preferences import task', 'CWE-502'],
-          ['account email update task', 'CWE-352'],
+          ['account email update task', 'CWE-352'], ['document access task', 'CWE-639'],
+          ['account recovery audit task', 'CWE-532'],
         ]) await expect(page.getByRole('option', { name: `${label} (${cwe})`, exact: true })).toBeVisible()
         await expect(page.getByRole('option', { selected: true })).toHaveCSS('background-color', 'rgb(228, 241, 237)')
         for (const option of await page.getByRole('option').all()) {
@@ -238,10 +239,12 @@ try {
     ['C', 'team', 'comment rendering task', 'app/comments.py'],
     ['D', 'single', 'preferences import task', 'app/preferences.py'],
     ['E', 'team', 'account email update task', 'app/account.py'],
+    ['F', 'single', 'document access task', 'app/documents.py'],
+    ['G', 'team', 'account recovery audit task', 'app/audit.py'],
   ]
   const selectedTasks = new Set((process.env.STUDY_BROWSER_TASKS ?? '').split(',').filter(Boolean))
   for (const [taskId, firstMode, taskLabel, source] of taskRuns.filter(([taskId]) => selectedTasks.size === 0 || selectedTasks.has(taskId))) {
-    const secondTaskId = { A: 'B', B: 'A', C: 'D', D: 'E', E: 'C' }[taskId]
+    const secondTaskId = { A: 'B', B: 'A', C: 'D', D: 'E', E: 'C', F: 'G', G: 'F' }[taskId]
     await page.goto(origin)
     await expect(page.getByRole('button', { name: 'New pilot participant', exact: true })).toBeVisible({ timeout: 30000 })
     await page.getByLabel('Task', { exact: true }).selectOption(taskId)

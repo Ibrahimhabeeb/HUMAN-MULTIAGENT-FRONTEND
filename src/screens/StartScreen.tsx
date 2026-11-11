@@ -8,7 +8,7 @@ import { useStudy } from '../store/study'
 import { StudyPage } from './StudyPage'
 
 const TASK_ICONS: Record<TaskId, string> = {
-  A: 'lock', B: 'folder-opened', C: 'comment-discussion', D: 'settings-gear', E: 'mail',
+  A: 'lock', B: 'folder-opened', C: 'comment-discussion', D: 'settings-gear', E: 'mail', F: 'file', G: 'list-unordered',
 }
 
 // Researcher: nothing is stored until the participant agrees on the consent screen.

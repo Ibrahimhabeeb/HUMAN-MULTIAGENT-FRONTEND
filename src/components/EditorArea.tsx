@@ -85,9 +85,16 @@ export function EditorArea() {
             options={{
               fontSize: 14,
               fontFamily: "Consolas, 'Cascadia Code', 'Courier New', monospace",
-              minimap: { enabled: true },
+              minimap: { enabled: false },
               automaticLayout: true,
               tabSize: 4,
+              wordWrap: 'bounded',
+              wordWrapColumn: 88,
+              wrappingIndent: 'same',
+              quickSuggestions: { other: true, comments: false, strings: false },
+              quickSuggestionsDelay: 120,
+              suggestOnTriggerCharacters: true,
+              wordBasedSuggestions: 'currentDocument',
               // Type into a real (hidden) text box, so keyboard extensions such as Vimium know you're typing
               // and leave letter keys alone. Monaco's newer input method is a plain div they don't recognise.
               editContext: false,

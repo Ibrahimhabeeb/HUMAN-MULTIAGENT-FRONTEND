@@ -2,6 +2,7 @@ import type {
   Answer,
   Approval,
   ChatStreamEvent,
+  CompletionResult,
   ConsentContent,
   Decision,
   FileMap,
@@ -181,6 +182,8 @@ export const api = {
   submitQuestionnaire: (answers: Answer[]) => request<StudyState>('POST', '/study/questionnaire', { answers }),
 
   files: () => request<FileMap>('GET', '/workspace/files'),
+  completions: (path: string, content: string, line: number, column: number, signal?: AbortSignal) =>
+    request<CompletionResult>('POST', '/workspace/completions', { path, content, line, column }, signal),
   writeFile: (path: string, content: string) => request<FsNode>('PUT', `/workspace/files/${filePath(path)}`, { content }),
   deletePath: (path: string) => request<void>('DELETE', `/workspace/files/${filePath(path)}`),
   createFolder: (path: string) => request<FsNode>('POST', '/workspace/folders', { path }),

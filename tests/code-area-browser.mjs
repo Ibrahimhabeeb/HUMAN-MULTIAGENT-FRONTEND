@@ -39,6 +39,10 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   let lintCalls = 0
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
+    if (route.request().url().endsWith('/workspace/completions')) {
+      await route.fulfill({ json: { items: [] } })
+      return
+    }
     if (!route.request().url().endsWith('/workspace/lint')) {
       errors.push('Fixture attempted to access a live study endpoint')
       await route.abort()

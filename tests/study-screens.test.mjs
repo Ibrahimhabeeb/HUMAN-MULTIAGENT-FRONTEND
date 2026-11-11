@@ -13,6 +13,8 @@ const state = {
     { id: 'C', label: 'comment rendering task', cwe: 'CWE-79' },
     { id: 'D', label: 'preferences import task', cwe: 'CWE-502' },
     { id: 'E', label: 'account email update task', cwe: 'CWE-352' },
+    { id: 'F', label: 'document access task', cwe: 'CWE-639' },
+    { id: 'G', label: 'account recovery audit task', cwe: 'CWE-532' },
   ],
 }
 const fixtures = {
@@ -42,7 +44,7 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
     const { QuestionnairePager } = await server.ssrLoadModule('/src/components/QuestionnairePager.tsx')
     const start = () => renderToStaticMarkup(createElement(StartScreen, { state }))
 
-    await t.test('setup has all five CWE-labelled tasks, both modes and the real researcher contact', () => {
+    await t.test('setup has all CWE-labelled tasks, both modes and the real researcher contact', () => {
       const html = start()
       assert.match(html, /<h1>Secure Coding Room<\/h1>/)
       assert.match(html, /<select[^>]+class="task-select"[^>]+id="session-task"/)
@@ -51,7 +53,7 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.match(html, /authentication task/)
       assert.match(html, /file download task/)
       for (const task of state.available_tasks) assert.ok(html.includes(`${task.label} (${task.cwe})`))
-      assert.equal((html.match(/<option /g) ?? []).length, 5)
+      assert.equal((html.match(/<option /g) ?? []).length, state.available_tasks.length)
       assert.match(html, /aria-pressed="true"[^>]*>.*Team/)
       assert.match(html, /New participant/)
       assert.match(html, /New pilot participant/)
