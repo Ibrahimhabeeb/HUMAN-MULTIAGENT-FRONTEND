@@ -82,3 +82,18 @@ The study browser harness uses `../backend/.venv/bin/python` on Linux and `.venv
 Override it with `STUDY_TEST_PYTHON` when needed. Linux uses Playwright's bundled Chromium; Windows defaults to Edge.
 `PLAYWRIGHT_CHANNEL` overrides the browser channel. The harness uses a temporary SQLite database, workspaces and
 snapshots, replaces its expected chat response and blocks unexpected chat POST requests, so it never calls real AI.
+
+## Continuous integration
+
+`.github/workflows/frontend-ci.yml` runs on pull requests targeting `main`, pushes to `main`, and manual runs
+from GitHub's Actions tab. Three independent jobs run in parallel using Node.js 24 and `npm ci`:
+
+- **Frontend lint** runs `npm run lint`.
+- **Frontend tests** runs `npm test`.
+- **Frontend build** checks TypeScript and creates the production assets with `npm run build`.
+
+The jobs need no backend server, model keys or deployment credentials. Browser checks remain separate because
+the study browser harness requires the sibling backend. This workflow does not deploy the application.
+
+After the workflow has run on GitHub, add **Frontend lint**, **Frontend tests** and **Frontend build** as required
+status checks in this repository's `main` branch ruleset. All three must pass before a pull request can merge.
