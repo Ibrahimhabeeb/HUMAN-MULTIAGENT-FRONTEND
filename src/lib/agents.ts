@@ -18,9 +18,10 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   propose_assumption: 'New assumption',
   propose_risk: 'Suggested risk',
   propose_vulnerability: 'New vulnerability',
-  mark_resolved: 'Mark as resolved',
+  mark_resolved: 'Mark fix as implemented',
   propose_test: 'New test file',
   suggest_fix: 'Suggested fix',
+  write_fix: 'Fix written',
 }
 
 /** The agents on the latest developer message's route that haven't answered it yet, in order. */
@@ -28,6 +29,5 @@ export function stillToAnswer(messages: Message[]): Specialist[] {
   const asked = messages.findLast((m) => m.role === 'human')
   if (!asked) return []
   const answered = new Set(messages.filter((m) => m.data.reply_to === asked.id).map((m) => m.data.agent))
-  // Older reviews also queued the Verifier; approval-triggered follow-ups now handle that work.
-  return (asked.data.route ?? []).filter((agent) => !answered.has(agent) && !(asked.data.snapshot && agent === 'verifier'))
+  return (asked.data.route ?? []).filter((agent) => !answered.has(agent))
 }

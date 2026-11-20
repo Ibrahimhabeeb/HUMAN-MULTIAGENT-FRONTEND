@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { Answer, Condition, QuestionnaireForm, QuestionnaireSection } from '../api/types'
+import { questionText } from '../lib/questionnaire'
 import { Codicon } from './Icons'
 
 interface Props {
@@ -18,7 +19,8 @@ export function ComparisonSection({ section, form, valueOf, onAnswer, onContinue
   const id = useId()
   const reviewing = step === section.questions.length
   const question = section.questions[step]
-  const numbers = Array.from({ length: form.scale.max - form.scale.min + 1 }, (_, i) => form.scale.min + i)
+  const scale = question?.scale
+  const numbers = scale ? Array.from({ length: scale.max - scale.min + 1 }, (_, i) => scale.min + i) : []
 
   useEffect(() => {
     if (!navigated.current) return
@@ -39,8 +41,8 @@ export function ComparisonSection({ section, form, valueOf, onAnswer, onContinue
   return (
     <div className="questionnaire-comparison">
       <div className="comparison-progress">
-        <span aria-live="polite">{reviewing ? 'Review ratings' : `Statement ${step + 1} of ${section.questions.length}`}</span>
-        <progress aria-label="Statement progress" max={section.questions.length} value={Math.min(step + 1, section.questions.length)} />
+        <span aria-live="polite">{reviewing ? 'Review ratings' : `Question ${question.number} of ${section.questions.length}`}</span>
+        <progress aria-label="Question progress" max={section.questions.length} value={Math.min(step + 1, section.questions.length)} />
       </div>
 
       {reviewing ? (
@@ -50,16 +52,16 @@ export function ComparisonSection({ section, form, valueOf, onAnswer, onContinue
             {section.questions.map((item, index) => (
               <li key={item.key}>
                 <div className="comparison-review-heading">
-                  <p>{item.text}</p>
-                  <button className="icon-btn" type="button" disabled={busy} title={`Change statement ${index + 1}`} aria-label={`Change statement ${index + 1}`} onClick={() => goTo(index)}>
+                  <p>Question {item.number}</p>
+                  <button className="icon-btn" type="button" disabled={busy} title={`Change question ${item.number}`} aria-label={`Change question ${item.number}`} onClick={() => goTo(index)}>
                     <Codicon name="edit" />
                   </button>
                 </div>
                 <dl>
                   {form.modes.map((mode) => (
                     <div key={mode.mode}>
-                      <dt>{mode.label}</dt>
-                      <dd>{valueOf(mode.mode, item.key) === undefined ? 'Skipped' : `${valueOf(mode.mode, item.key)} / ${form.scale.max}`}</dd>
+                      <dt>{mode.label}: {questionText(item, mode.mode)}</dt>
+                      <dd>{valueOf(mode.mode, item.key) === undefined ? 'Skipped' : `${valueOf(mode.mode, item.key)} / ${item.scale?.max}`}</dd>
                     </div>
                   ))}
                 </dl>
@@ -69,7 +71,7 @@ export function ComparisonSection({ section, form, valueOf, onAnswer, onContinue
         </>
       ) : (
         <>
-          <h3 className="comparison-question" id={`${id}-statement`} ref={heading} tabIndex={-1}>{question.text}</h3>
+          <h3 className="comparison-question" id={`${id}-statement`} ref={heading} tabIndex={-1}>Question {question.number}</h3>
           <div className="comparison-modes">
             {form.modes.map((mode) => {
               const value = valueOf(mode.mode, question.key)
@@ -81,6 +83,7 @@ export function ComparisonSection({ section, form, valueOf, onAnswer, onContinue
                       <Codicon name="clear-all" />
                     </button>
                   </legend>
+                  <p className="comparison-mode-question">{questionText(question, mode.mode)}</p>
                   <div className="comparison-scale" style={{ gridTemplateColumns: `repeat(${numbers.length}, minmax(0, 1fr))` }}>
                     {numbers.map((number) => (
                       <label key={number}>
@@ -90,8 +93,8 @@ export function ComparisonSection({ section, form, valueOf, onAnswer, onContinue
                     ))}
                   </div>
                   <div className="comparison-endpoints" id={`${id}-${mode.mode}-endpoints`}>
-                    <span>{form.scale.min_label}</span>
-                    <span>{form.scale.max_label}</span>
+                    <span>{scale?.min_label}</span>
+                    <span>{scale?.max_label}</span>
                   </div>
                 </fieldset>
               )

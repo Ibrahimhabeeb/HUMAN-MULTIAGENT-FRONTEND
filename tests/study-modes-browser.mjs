@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { chromium, expect } from '@playwright/test'
@@ -10,7 +10,9 @@ import { createServer } from 'vite'
 
 const temporary = await mkdtemp(join(tmpdir(), 'secure-room-mode-check-'))
 const backend = resolve('../backend')
-const python = process.env.STUDY_TEST_PYTHON || join(backend, '.venv', 'Scripts', 'python.exe')
+const python = process.env.STUDY_TEST_PYTHON || (process.platform === 'win32'
+  ? join(backend, '.venv', 'Scripts', 'python.exe')
+  : join(backend, '.venv', 'bin', 'python'))
 let service, server, browser, page
 let log = ''
 try {
@@ -41,24 +43,125 @@ try {
   })
   server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-study-browser', plugins: [react()],
     worker: { format: 'es' },
-    server: { host: '127.0.0.1', port: 0, hmr: false, ws: false, proxy: { '/api': { target: apiUrl, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, '') } } },
+    server: { host: '127.0.0.1', port: 0, hmr: false, ws: false, fs: { allow: [resolve('.'), await realpath('node_modules')] },
+      proxy: { '/api': { target: apiUrl, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, '') } } },
   })
   await server.listen()
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`
-  browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge', headless: true })
-  page = await browser.newPage({ viewport: { width: 1440, height: 960 } })
+  browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true })
+  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } })
+  page = await context.newPage()
   const errors = []
+  let mockFirstChat = false
+  let nextMessageId = 1000
   page.on('pageerror', (error) => errors.push(error.message))
   await page.route((url) => url.pathname.startsWith('/api/chat'), async (route) => {
     if (route.request().method() === 'POST') {
-      errors.push('Browser flow attempted an AI request')
-      await route.abort()
+      const match = /^\/api\/chat\/(team|assistant)\/stream$/.exec(new URL(route.request().url()).pathname)
+      if (mockFirstChat && match) {
+        mockFirstChat = false
+        const message = {
+          id: nextMessageId++, thread: match[1], role: 'human',
+          content: route.request().postDataJSON().content, data: {}, ts: new Date().toISOString(),
+        }
+        await route.fulfill({ status: 200, contentType: 'application/x-ndjson',
+          body: `${JSON.stringify({ type: 'message', message })}\n${JSON.stringify({ type: 'done', next: null })}\n` })
+      } else {
+        errors.push('Browser flow attempted an AI request')
+        await route.abort()
+      }
     } else await route.continue()
   })
   await mkdir('node_modules/.tmp', { recursive: true })
 
+  async function requestFor(tab, method, path, options = {}) {
+    const token = await tab.evaluate(() => sessionStorage.getItem('secure-coding-room.session'))
+    return tab.request[method](path, { ...options, headers: { ...options.headers, 'X-Session-Token': token } })
+  }
+  const sessionRequest = (method, path, options) => requestFor(page, method, path, options)
+
+  async function selectTask(tab, taskId, label = 'Task') {
+    await tab.getByRole('combobox', { name: label, exact: true }).click()
+    await tab.locator(`[role="option"][data-task-id="${taskId}"]`).click()
+  }
+
+  async function expectChatPrompt(tab) {
+    await expect(tab.locator('.task-guide-chat')).toBeVisible()
+    await expect(tab.locator('.task-guide-chat')).toContainText('Start with chat')
+    await expect(tab.locator('.chat-onboarding-scrim')).toHaveCount(0)
+    assert.equal(await tab.locator('.sidebar').evaluate((panel) => Boolean(panel.closest('[inert]'))), false)
+    await expect(tab.locator('.composer .review-bar')).toBeVisible()
+    await expect(tab.locator('.task-guide-overlay')).toHaveCount(0)
+    await expect(tab.locator('.titlebar').getByRole('button', { name: 'Finish part', exact: true })).toBeEnabled()
+    await expect(tab.locator('.titlebar').getByRole('button', { name: 'Run tests', exact: true })).toBeEnabled()
+    await expect(tab.locator('.composer').getByRole('button', { name: 'Ready for review', exact: true })).toBeEnabled()
+  }
+
+  async function askFirstQuestion(tab) {
+    mockFirstChat = true
+    await tab.locator('.composer textarea').fill('Where should I start with this task?')
+    await tab.locator('.composer').getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(tab.locator('.task-guide-chat')).toHaveCount(0)
+    await expect(tab.locator('.agent-chat')).not.toHaveClass(/chat-invitation/)
+    await expect(tab.locator('.titlebar').getByRole('button', { name: 'Finish part', exact: true })).toBeEnabled()
+    await expect(tab.locator('.composer').getByRole('button', { name: 'Ready for review', exact: true })).toBeEnabled()
+  }
+
+  async function checkTabSessions() {
+    await page.goto(origin)
+    await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
+    const other = await page.context().newPage()
+    try {
+      await other.goto(origin)
+      await expect(other.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
+      const token = await page.evaluate(() => sessionStorage.getItem('secure-coding-room.session'))
+      const otherToken = await other.evaluate(() => sessionStorage.getItem('secure-coding-room.session'))
+      assert.notEqual(token, otherToken)
+      assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, cookie: document.cookie })), { local: 0, cookie: '' })
+      await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
+      await selectTask(page, 'A')
+      await selectTask(other, 'B')
+      await other.getByRole('button', { name: 'Single', exact: true }).click()
+      for (const tab of [page, other]) {
+        await tab.getByRole('button', { name: 'Start', exact: true }).click()
+        await tab.getByRole('button', { name: 'Continue', exact: true }).click()
+        await tab.getByRole('checkbox').first().waitFor()
+        for (const checkbox of await tab.getByRole('checkbox').all()) await checkbox.check()
+        await tab.getByRole('button', { name: 'I agree', exact: true }).click()
+        await expect(tab.locator('.command-center')).toContainText('Part 1 of 2')
+        await expectChatPrompt(tab)
+      }
+      const first = await (await requestFor(page, 'get', origin + '/api/study/state')).json()
+      const second = await (await requestFor(other, 'get', origin + '/api/study/state')).json()
+      assert.notEqual(first.participant, second.participant)
+      assert.equal(first.mode, 'team')
+      assert.equal(second.mode, 'single')
+      await requestFor(page, 'put', origin + '/api/workspace/files/private.txt', { data: { content: 'only first participant' } })
+      assert.equal((await requestFor(other, 'get', origin + '/api/workspace/files/private.txt')).status(), 404)
+      await page.reload()
+      await expect(page.locator('.command-center')).toContainText('authentication task')
+      await expect(page.locator('.task-guide-chat')).toBeVisible()
+      assert.equal(await page.evaluate(() => sessionStorage.getItem('secure-coding-room.session')), token)
+      assert.equal((await (await requestFor(page, 'get', origin + '/api/study/state')).json()).participant, first.participant)
+      await other.screenshot({ path: 'node_modules/.tmp/session-second-tab.png' })
+      await page.screenshot({ path: 'node_modules/.tmp/session-first-tab.png' })
+      for (const tab of [page, other]) {
+        await tab.getByRole('button', { name: 'Restart for new participant (researcher)', exact: true }).click()
+        await tab.getByRole('dialog').getByRole('button', { name: 'Restart', exact: true }).click()
+        await expect(tab.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
+        if (tab === page) {
+          assert.equal((await (await requestFor(other, 'get', origin + '/api/study/state')).json()).participant, second.participant)
+          assert.equal((await page.request.get(origin + '/api/workspace/files', { headers: { 'X-Session-Token': token } })).status(), 401)
+          assert.notEqual(await page.evaluate(() => sessionStorage.getItem('secure-coding-room.session')), token)
+        }
+      }
+    } finally {
+      await other.close()
+    }
+  }
+
   async function state() {
-    const response = await page.request.get(`${origin}/api/study/state`)
+    const response = await sessionRequest('get', `${origin}/api/study/state`)
     assert.equal(response.status(), 200)
     return response.json()
   }
@@ -78,131 +181,116 @@ try {
   }
   async function checkTaskPicker(taskId) {
     const task = page.getByRole('combobox', { name: 'Task', exact: true })
-    if (await page.evaluate(() => CSS.supports('appearance', 'base-select'))) {
-      await expect(task).toHaveCSS('appearance', 'base-select')
-      await task.press('Space')
-      await page.keyboard.press('End')
-      await page.keyboard.press('Enter')
-      await expect(task).toHaveValue('B')
-      await expect(page.locator('.task-picker-icon.task-b')).toBeVisible()
-      await task.press('Space')
-      await page.keyboard.press('Home')
-      await page.keyboard.press('Escape')
-      await expect(task).toHaveValue('B')
-      await task.press('Space')
-      await page.keyboard.press('Home')
-      await page.keyboard.press('Enter')
-      await expect(task).toHaveValue('A')
-      await task.selectOption(taskId)
-      for (const width of [1440, 768, 390, 320]) {
-        await page.setViewportSize({ width, height: 960 })
-        await task.click()
-        await expect(page.getByRole('option', { name: 'authentication task', exact: true })).toBeVisible()
-        await expect(page.getByRole('option', { name: 'file download task', exact: true })).toBeVisible()
-        await expect(page.getByRole('option', { selected: true })).toHaveCSS('background-color', 'rgb(228, 241, 237)')
-        for (const option of await page.getByRole('option').all()) {
-          const bounds = await option.boundingBox()
-          assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, `Task option overflows at ${width}px`)
-          assert.ok(bounds.height >= 44, 'Task options need a comfortable click target')
-        }
-        await page.screenshot({ path: `node_modules/.tmp/task-${taskId}-picker-${width}.png` })
-        await page.keyboard.press('Escape')
-        await expect(task).toHaveValue(taskId)
+    await task.press('Space')
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await expect(task).toContainText('account recovery audit task')
+    await expect(task.locator('.task-g .codicon-list-unordered')).toBeVisible()
+    await task.press('Space')
+    await page.keyboard.press('Home')
+    await page.keyboard.press('Escape')
+    await expect(task).toContainText('account recovery audit task')
+    await task.press('Space')
+    await page.keyboard.press('Home')
+    await page.keyboard.press('Enter')
+    await expect(task).toContainText('authentication task')
+    await selectTask(page, taskId)
+    for (const width of [1440, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 960 })
+      await task.click()
+      await expect(page.getByRole('option')).toHaveCount(7)
+      for (const [label, cwe] of [
+        ['authentication task', 'CWE-89'], ['file download task', 'CWE-22'],
+        ['comment rendering task', 'CWE-79'], ['preferences import task', 'CWE-502'],
+        ['account email update task', 'CWE-352'], ['document access task', 'CWE-639'],
+        ['account recovery audit task', 'CWE-532'],
+      ]) await expect(page.getByRole('option', { name: `${label} (${cwe})`, exact: true })).toBeVisible()
+      await expect(page.getByRole('option', { selected: true })).toHaveCSS('background-color', 'rgb(228, 241, 237)')
+      for (const option of await page.getByRole('option').all()) {
+        const bounds = await option.boundingBox()
+        assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width, `Task option overflows at ${width}px`)
+        assert.ok(bounds.height >= 44, 'Task options need a comfortable click target')
       }
-      await page.setViewportSize({ width: 1440, height: 960 })
+      await page.screenshot({ path: `node_modules/.tmp/task-${taskId}-picker-${width}.png` })
+      await page.keyboard.press('Escape')
+      await expect(task).toHaveAttribute('aria-expanded', 'false')
     }
-    const fallback = await page.addStyleTag({ content: '.session-fields .task-select { appearance: none !important; display: block !important; }' })
-    await task.selectOption(taskId === 'A' ? 'B' : 'A')
-    await task.selectOption(taskId)
-    await expect(task).toHaveValue(taskId)
-    await fallback.evaluate((style) => style.remove())
+    await page.setViewportSize({ width: 1440, height: 960 })
   }
   async function checkComparison(taskId) {
-    const response = await page.request.get(`${origin}/api/study/questionnaire`)
+    const response = await sessionRequest('get', `${origin}/api/study/questionnaire`)
     const form = await response.json()
-    const section = form.sections.find((item) => item.title === 'Both ways of working')
-    const comparison = page.locator('.questionnaire-comparison')
-    const teamLabel = form.modes.find((mode) => mode.mode === 'team').label
-    const singleLabel = form.modes.find((mode) => mode.mode === 'single').label
-    const teamRating = comparison.getByRole('group', { name: teamLabel, exact: true })
-    const singleRating = comparison.getByRole('group', { name: singleLabel, exact: true })
-    await expect(comparison).toContainText(`Statement 1 of ${section.questions.length}`)
-    await expect(comparison.getByRole('radio')).toHaveCount(14)
-    await expect(comparison.locator('input:checked')).toHaveCount(0)
-    await expect(comparison.getByRole('button', { name: 'Back', exact: true })).toBeDisabled()
-    await expect(comparison.getByRole('button', { name: 'Continue', exact: true })).toBeEnabled()
+    const questions = form.sections.flatMap((section) => section.questions)
+    const pager = page.locator('.questionnaire-pager')
+    await expect(pager).toContainText('Question 1 of 21')
+    await expect(pager.locator('.question-card')).toHaveCount(1)
+    await expect(pager).not.toContainText('Reliability and caution')
+    await expect(pager).not.toContainText('/100')
+    await expect(pager.getByRole('button', { name: 'Back', exact: true })).toBeDisabled()
     await checkScreenLayout(`task-${taskId}-questionnaire`)
     for (const width of [1440, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 960 })
-      for (const scale of await comparison.locator('.comparison-scale').all()) {
-        const positions = await scale.locator('label').evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect().top))
-        assert.equal(new Set(positions).size, 1, `Rating scale wraps at ${width}px`)
-      }
-      await comparison.screenshot({ path: `node_modules/.tmp/task-${taskId}-comparison-${width}.png` })
+      await pager.screenshot({ path: `node_modules/.tmp/task-${taskId}-questionnaire-pager-${width}.png` })
     }
     await page.setViewportSize({ width: 1440, height: 960 })
-    await teamRating.getByText('6', { exact: true }).click()
-    await singleRating.getByText('3', { exact: true }).click()
-    await comparison.getByRole('button', { name: 'Continue', exact: true }).click()
-    await expect(comparison.getByRole('heading', { level: 3 })).toHaveText(section.questions[1].text)
-    await expect(comparison.locator('input:checked')).toHaveCount(0)
-    await comparison.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect(teamRating.getByRole('radio', { name: '6', exact: true })).toBeChecked()
-    await expect(singleRating.getByRole('radio', { name: '3', exact: true })).toBeChecked()
-    await comparison.getByRole('button', { name: `Clear rating for ${teamLabel}`, exact: true }).click()
-    await expect(teamRating.locator('input:checked')).toHaveCount(0)
-    await expect(singleRating.getByRole('radio', { name: '3', exact: true })).toBeChecked()
-    await teamRating.getByText('5', { exact: true }).click()
-    await comparison.getByRole('button', { name: 'Continue', exact: true }).click()
-    await teamRating.getByText('4', { exact: true }).click()
-    await singleRating.getByText('2', { exact: true }).click()
-    await comparison.getByRole('button', { name: 'Skip', exact: true }).click()
-    await comparison.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect(comparison.locator('input:checked')).toHaveCount(0)
-    for (let index = 1; index < section.questions.length - 1; index++) {
-      await comparison.getByRole('button', { name: 'Continue', exact: true }).click()
-    }
-    await comparison.getByRole('button', { name: 'Review ratings', exact: true }).click()
-    await expect(comparison.locator('.comparison-review li')).toHaveCount(section.questions.length)
-    await expect(comparison.locator('.comparison-review li').first()).toContainText('5 / 7')
-    await expect(comparison.locator('.comparison-review li').first()).toContainText('3 / 7')
-    await expect(comparison.locator('.comparison-review li').nth(1).getByText('Skipped', { exact: true })).toHaveCount(2)
-    await comparison.getByRole('button', { name: 'Change statement 1', exact: true }).click()
-    await teamRating.getByRole('radio', { name: '5', exact: true }).focus()
-    await page.keyboard.press('ArrowRight')
-    await expect(teamRating.getByRole('radio', { name: '6', exact: true })).toBeChecked()
-    for (let index = 0; index < section.questions.length - 1; index++) {
-      await comparison.getByRole('button', { name: 'Continue', exact: true }).click()
-    }
-    await comparison.getByRole('button', { name: 'Review ratings', exact: true }).click()
-    await checkScreenLayout(`task-${taskId}-comparison-review`)
-    await comparison.getByRole('button', { name: 'Continue', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'The agent team', exact: true })).toBeFocused()
-    const teamSection = page.locator('.questionnaire-section').filter({ has: page.getByRole('heading', { name: 'The agent team', exact: true }) })
-    const teamQuestions = form.sections.find((item) => item.title === 'The agent team').questions
-    await expect(teamSection.locator('tbody tr')).toHaveCount(teamQuestions.length)
-    await teamSection.locator('tbody tr').first().getByRole('button', { name: '4', exact: true }).click()
+    const cards = pager.locator('.question-card')
+    await cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'Very confident', exact: true }).click()
+    await cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Very confident', exact: true }).click()
+    await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 2 of 21')
+    await pager.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'Very confident', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'Very confident', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    for (let index = 0; index < 7; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 8 of 21')
+    await cards.locator('.mode-answer').nth(0).getByRole('button', { name: 'A moderate amount', exact: true }).click()
+    await cards.locator('.mode-answer').nth(1).getByRole('button', { name: 'A great deal', exact: true }).click()
+    for (let index = 0; index < 3; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 11 of 21')
+    await cards.getByRole('button', { name: 'Strongly agree', exact: true }).click()
+    await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await cards.getByRole('button', { name: 'Not applicable', exact: true }).click()
+    for (let index = 0; index < 9; index++) await pager.getByRole('button', { name: 'Next question', exact: true }).click()
+    await expect(pager).toContainText('Question 21 of 21')
+    await cards.locator('textarea').fill('The shared security state was useful.')
+    await expect(pager.getByRole('button', { name: 'Submit answers', exact: true })).toBeVisible()
     return {
       answers: [
-        { condition: 'team', item: section.questions[0].key, value: 6 },
-        { condition: 'single', item: section.questions[0].key, value: 3 },
-        { condition: 'team', item: teamQuestions[0].key, value: 4 },
+        { condition: 'team', item: questions[0].key, value: 'Very confident' },
+        { condition: 'single', item: questions[0].key, value: 'Very confident' },
+        { condition: 'team', item: questions[7].key, value: 'A moderate amount' },
+        { condition: 'single', item: questions[7].key, value: 'A great deal' },
+        { condition: 'team', item: questions[10].key, value: 'Strongly agree' },
+        { condition: 'team', item: questions[11].key, value: 'Not applicable' },
+        { condition: 'none', item: questions[20].key, value: 'The shared security state was useful.' },
       ],
-      skipped: section.questions[1].key,
+      skipped: questions[1].key,
     }
   }
 
-  for (const [taskId, firstMode, taskLabel, source] of [
+  await checkTabSessions()
+
+  const taskRuns = [
     ['A', 'team', 'authentication task', 'app/auth.py'],
     ['B', 'single', 'file download task', 'app/storage.py'],
-  ]) {
+    ['C', 'team', 'comment rendering task', 'app/comments.py'],
+    ['D', 'single', 'preferences import task', 'app/preferences.py'],
+    ['E', 'team', 'account email update task', 'app/account.py'],
+    ['F', 'single', 'document access task', 'app/documents.py'],
+    ['G', 'team', 'account recovery audit task', 'app/audit.py'],
+  ]
+  const selectedTasks = new Set((process.env.STUDY_BROWSER_TASKS ?? '').split(',').filter(Boolean))
+  for (const [taskId, firstMode, taskLabel, source] of taskRuns.filter(([taskId]) => selectedTasks.size === 0 || selectedTasks.has(taskId))) {
+    const secondTaskId = { A: 'B', B: 'A', C: 'D', D: 'E', E: 'C', F: 'G', G: 'F' }[taskId]
     await page.goto(origin)
-    await expect(page.getByRole('button', { name: 'New pilot participant', exact: true })).toBeVisible({ timeout: 30000 })
-    await page.getByLabel('Task', { exact: true }).selectOption(taskId)
+    await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible({ timeout: 30000 })
+    await expect(page.getByRole('combobox', { name: 'Task', exact: true })).toHaveText('Select a task')
+    await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeDisabled()
+    await selectTask(page, taskId)
     await checkTaskPicker(taskId)
     await checkScreenLayout(`task-${taskId}-start`)
     await page.getByRole('group', { name: 'Team or single mode' }).getByRole('button', { name: firstMode === 'team' ? 'Team' : 'Single', exact: true }).click()
-    await page.getByRole('button', { name: 'New pilot participant', exact: true }).click()
+    await page.getByRole('button', { name: 'Start', exact: true }).click()
     assert.equal((await state()).task.id, taskId)
     await expect(page.getByRole('heading', { name: 'Participant information sheet', exact: true })).toBeVisible()
     await expect(page.locator('.study-document')).toContainText('Ibrahim Habeeb-lahi Abiola')
@@ -212,7 +300,7 @@ try {
     await checkScreenLayout(`task-${taskId}-information`)
     assert.equal((await state()).participant, null)
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
-    const consentResponse = await page.request.get(`${origin}/api/study/content/consent`)
+    const consentResponse = await sessionRequest('get', `${origin}/api/study/content/consent`)
     const consent = await consentResponse.json()
     assert.equal(consent.version, 'v1.1')
     await expect(page.locator('.consent-list input')).toHaveCount(consent.statements.length)
@@ -227,28 +315,40 @@ try {
     await expect(page.getByRole('progressbar', { name: 'Consent statements completed' })).toHaveAttribute('value', String(consent.statements.length))
     await page.getByRole('button', { name: 'I agree', exact: true }).click()
     await expect(page.locator('.command-center')).toContainText(taskLabel)
+    await expectChatPrompt(page)
+    if (taskId === 'A') await page.screenshot({ path: 'node_modules/.tmp/task-guide-chat.png' })
+    await askFirstQuestion(page)
     await expect(page.locator('.app-shell.study-theme')).toHaveCount(0)
     await expect(page.locator('.monaco-editor').first()).toBeVisible()
     assert.equal(await page.locator('.monaco-editor').first().evaluate((editor) => getComputedStyle(editor).backgroundColor), 'rgb(30, 30, 30)')
-    await expect.poll(() => page.request.get(`${origin}/api/workspace/files/${source}`).then((response) => response.status())).toBe(200)
-    const created = await page.request.put(`${origin}/api/workspace/files/tests/test_first_mode.py`, { data: { content: 'def test_first_mode():\n    assert True\n' } })
+    await expect.poll(() => sessionRequest('get', `${origin}/api/workspace/files/${source}`).then((response) => response.status())).toBe(200)
+    const created = await sessionRequest('put', `${origin}/api/workspace/files/tests/test_first_mode.py`, { data: { content: 'def test_first_mode():\n    assert True\n' } })
     assert.equal(created.status(), 200)
     await page.locator('.titlebar').getByRole('button', { name: 'Run tests', exact: true }).click()
     await expect(page.locator('.test-summary')).toBeVisible({ timeout: 30000 })
     await expect(page.locator('.problem-text').filter({ hasText: 'test_first_mode' })).toBeVisible()
     await finishPart()
     await expect(page.getByRole('heading', { name: 'Part 1 is finished', exact: true })).toBeVisible()
-    await expect(page.locator('.lead')).toContainText(taskLabel)
     await checkScreenLayout(`task-${taskId}-mode-handoff`)
     const secondMode = firstMode === 'team' ? 'single' : 'team'
     const nextName = secondMode === 'team' ? 'Agent team' : 'Single assistant'
-    await page.getByRole('button', { name: `Continue with ${nextName}`, exact: true }).click()
+    await expect(page.locator('.lead')).toContainText(nextName)
+    const handoff = await state()
+    assert.equal(handoff.task, null)
+    assert.deepEqual(handoff.parts, [])
+    assert.equal(handoff.available_tasks.some((task) => task.id === taskId), false)
+    const taskTwo = page.getByLabel('Part 2 task', { exact: true })
+    await expect(taskTwo).toHaveText('Select a task')
+    await selectTask(page, secondTaskId, 'Part 2 task')
+    await page.getByRole('button', { name: `Start Part 2 with ${nextName}`, exact: true }).click()
     await expect(page.locator('.command-center')).toContainText(`Part 2 of 2`)
-    await expect(page.locator('.command-center')).toContainText(taskLabel)
+    await expectChatPrompt(page)
+    await askFirstQuestion(page)
+    await expect(page.locator('.command-center')).toContainText((await state()).task.label)
     await expect(page.locator('.command-center')).toContainText(nextName)
     const second = await state()
-    assert.deepEqual(second.parts.map((part) => part.task_id), [taskId, taskId])
-    assert.equal((await page.request.get(`${origin}/api/workspace/files/tests/test_first_mode.py`)).status(), 404)
+    assert.deepEqual(second.parts.map((part) => part.task_id), [secondTaskId])
+    assert.equal((await sessionRequest('get', `${origin}/api/workspace/files/tests/test_first_mode.py`)).status(), 404)
     await expect(page.locator('.test-summary')).toHaveCount(0)
     await page.locator('.titlebar').getByRole('button', { name: 'Run tests', exact: true }).click()
     await expect(page.locator('.test-summary')).toBeVisible({ timeout: 30000 })
@@ -256,7 +356,7 @@ try {
     await finishPart()
     await expect(page.getByRole('heading', { name: 'Questionnaire', exact: true })).toBeVisible()
     assert.equal((await state()).screen, 'questionnaire')
-    await expect(page.getByRole('button', { name: 'Submit answers', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Next question', exact: true })).toBeVisible()
     const comparisonAnswers = await checkComparison(taskId)
     await page.getByRole('button', { name: 'Submit answers', exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText('cannot change your answers or withdraw your study data')
@@ -273,7 +373,7 @@ try {
     await expect(page.locator('.study-main')).not.toContainText('withdraw your data later')
     await checkScreenLayout(`task-${taskId}-thank-you`)
     await page.getByRole('button', { name: 'Finish', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'New pilot participant', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeVisible()
   }
   assert.deepEqual(errors, [])
   console.log('Study browser checks passed: comparison navigation, retained/skipped ratings and submission; task picker styling, keyboard and fallback; light screens at four widths, consent gating, dark Monaco, both mode orders and isolated attempts.')

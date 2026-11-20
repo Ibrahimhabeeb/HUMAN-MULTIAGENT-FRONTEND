@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import type { StudyState, TaskId } from '../api/types'
 import { Codicon } from '../components/Icons'
 import { ModeSwitch } from '../components/ModeSwitch'
+import { TaskPicker } from '../components/TaskPicker'
 import { MODE_NAMES } from '../lib/agents'
 import { useStudy } from '../store/study'
 import { StudyPage } from './StudyPage'
@@ -10,8 +11,10 @@ import { StudyPage } from './StudyPage'
 // Researcher: nothing is stored until the participant agrees on the consent screen.
 export function StartScreen({ state }: { state: StudyState }) {
   const busy = useStudy((s) => s.busy)
-  const [taskId, setTaskId] = useState<TaskId>('A')
-  const start = (pilot: boolean) => useStudy.getState().run(() => api.start(pilot, taskId))
+  const [taskId, setTaskId] = useState<TaskId | ''>('')
+  const start = () => {
+    if (taskId) return useStudy.getState().run(() => api.start(false, taskId))
+  }
 
   return (
     <StudyPage title="Secure Coding Room" restart={false}>
@@ -23,14 +26,8 @@ export function StartScreen({ state }: { state: StudyState }) {
         </div>
         <div className="session-fields">
           <div className="field">
-            <label className="field-label" htmlFor="session-task">Task</label>
-            <div className={`task-picker${busy ? ' disabled' : ''}`}>
-              <span className={`task-picker-icon task-${taskId.toLowerCase()}`}><Codicon name={taskId === 'A' ? 'lock' : 'folder-opened'} /></span>
-              <select className="task-select" id="session-task" value={taskId} disabled={busy} onChange={(event) => setTaskId(event.target.value as TaskId)}>
-                {state.available_tasks.map((task) => <option key={task.id} value={task.id}>{task.label}</option>)}
-              </select>
-              <Codicon name="chevron-down" className="task-picker-arrow" />
-            </div>
+            <label className="field-label" id="session-task-label" htmlFor="session-task">Task</label>
+            <TaskPicker id="session-task" tasks={state.available_tasks} value={taskId} disabled={busy} onChange={setTaskId} />
           </div>
           <div className="field">
             <span className="field-label">Starting mode</span>
@@ -41,11 +38,8 @@ export function StartScreen({ state }: { state: StudyState }) {
           Starting with the {MODE_NAMES[state.mode].toLowerCase()}. Alternate the starting mode between participants.
         </p>
         <div className="study-actions">
-          <button className="btn primary big" disabled={busy} onClick={() => start(false)}>
-            <Codicon name={busy ? 'loading' : 'person-add'} className={busy ? 'codicon-modifier-spin' : ''} /> New participant
-          </button>
-          <button className="btn secondary big" disabled={busy} onClick={() => start(true)}>
-            <Codicon name="beaker" /> New pilot participant
+          <button className="btn primary big" disabled={busy || !taskId} onClick={start}>
+            <Codicon name={busy ? 'loading' : 'play'} className={busy ? 'codicon-modifier-spin' : ''} /> Start
           </button>
         </div>
       </section>

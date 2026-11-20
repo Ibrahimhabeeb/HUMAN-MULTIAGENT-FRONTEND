@@ -11,6 +11,10 @@ const finding = { id: 1, actor: 'reviewer', action_type: 'propose_vulnerability'
   final_proposal: null, result: { item_id: 'V1' }, requested_at: timestamp, decided_at: timestamp }
 const fix = { ...finding, id: 2, action_type: 'suggest_fix', status: 'pending',
   proposal: { vulnerability: 'V1', file: 'app/auth.py', location: 'login()', code: 'safe_query()', why: 'Use parameters.' } }
+const written = { ...finding, id: 5, action_type: 'write_fix', status: 'written',
+  result: { item_id: 'M1', line: 12, offset: 40, after_hash: 'sample-hash', added_lines: 1, removed_lines: 1,
+    diff: [{ kind: 'remove', text: 'unsafe_query()' }, { kind: 'add', text: 'safe_query()' }] },
+  proposal: { vulnerability: 'V1', file: 'app/auth.py', find: 'unsafe_query()', replace: 'safe_query()', why: 'Use parameters.' } }
 const securityTest = { ...finding, id: 3, actor: 'verifier', action_type: 'propose_test', status: 'pending',
   proposal: { path: 'tests/test_security.py', content: 'def test_safe():\n    assert True', vulnerability_ids: ['V1'] } }
 const reviewed = { id: 10, role: 'human', thread: 'team', content: 'Please review this code:', data: { snapshot: '01_review', route: ['reviewer'] }, ts: timestamp }
@@ -47,7 +51,7 @@ function resetFixtures() {
     security: { state: { vulnerabilities: [] }, load: async () => {} },
     workspace: { files: { 'tests/test_functional.py': { type: 'file', content: '' } }, dirty: [], load: async () => {}, saveAll: async () => {}, save: async () => {} },
     tests: { running: false },
-    ui: { toast: () => {}, showRightTab: () => {} },
+    ui: { toast: () => {}, showRightTab: () => {}, setBottomTab: () => {} },
   }
 }
 
@@ -57,6 +61,7 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
   try {
     const { ChatView } = await server.ssrLoadModule('/src/components/ChatView.tsx')
     const { ApprovalsView } = await server.ssrLoadModule('/src/components/Approvals.tsx')
+    const { SecurityPanel } = await server.ssrLoadModule('/src/components/SecurityPanel.tsx')
     const render = (mode = 'team') => renderToStaticMarkup(createElement(ChatView, { mode }))
 
     await t.test('first review has a clear label and no Done ambiguity', () => {
@@ -69,17 +74,33 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
         'The Test/Verifier writes tests against approved vulnerabilities. There are none yet, so it had nothing to test.', data: {}, ts: timestamp }]
       globalThis.reviewFixtures.agents.approvals = [finding]
       assert.doesNotMatch(render(), /There are none yet/)
-      assert.match(render(), /Review updated code/)
+      assert.match(render(), /Who should write the fix for V1/)
+      assert.match(render(), /Let Code Reviewer implement/)
+      assert.match(render(), /I&#x27;ll write the fix/)
+      assert.match(render(), /Choose who writes the fix/)
+      assert.doesNotMatch(renderToStaticMarkup(createElement(ApprovalsView)), /Who should write the fix/)
     })
 
     await t.test('both follow-ups show progress at the same time', () => {
       globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, job(12, 'reviewer', 'running'), job(13, 'verifier', 'running')]
       const html = render()
-      assert.match(html, /Preparing fix suggestions/)
+      assert.match(html, /Writing the fix\. The editor is locked/)
       assert.match(html, /Preparing security tests/)
       assert.match(html, /2 follow-ups in progress/)
-      assert.match(html, /disabled=""[^>]*>.*Preparing fixes and tests/)
+      assert.match(html, /disabled=""[^>]*>.*Writing fixes and preparing tests/)
       assert.doesNotMatch(html, /Done, review my code/)
+    })
+
+    await t.test('developer choice requests guidance without claiming the reviewer is editing', () => {
+      const guidance = job(16, 'reviewer', 'running')
+      globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, {
+        ...guidance, data: { ...guidance.data, fix_choice: 'developer' },
+      }]
+      globalThis.reviewFixtures.agents.approvals = [{ ...finding, result: { item_id: 'V1', fix_choice: 'developer' } }]
+      const html = render()
+      assert.match(html, /Preparing a suggested fix for you to write/)
+      assert.match(html, /Preparing fix guidance/)
+      assert.doesNotMatch(html, /editor is locked/)
     })
 
     await t.test('fixes and tests are decided in chat, not the archive', () => {
@@ -93,25 +114,93 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
       assert.doesNotMatch(renderToStaticMarkup(createElement(ApprovalsView)), /safe_query\(\)|tests\/test_security.py/)
     })
 
+    await t.test('a fix the Code Reviewer wrote needs no decision and says where it went', () => {
+      globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, finished(job(12, 'reviewer'), written)]
+      globalThis.reviewFixtures.agents.approvals = [{ ...finding, result: { item_id: 'V1', fix_choice: 'reviewer' } }, written]
+      const html = render()
+      assert.match(html, /Edited.*app\/auth.py/)
+      assert.match(html, /\+1/)
+      assert.match(html, /-1/)
+      assert.match(html, /View changes/)
+      assert.match(html, /Undo/)
+      assert.doesNotMatch(html, /unsafe_query\(\)|safe_query\(\)/) // collapsed by default
+      assert.doesNotMatch(html, />\s*Approve<\/button>/)
+      assert.doesNotMatch(html, /Review proposals/)
+      assert.match(renderToStaticMarkup(createElement(ApprovalsView)), /Code edits/)
+      assert.match(renderToStaticMarkup(createElement(ApprovalsView)), /mitigations as M1/)
+      globalThis.reviewFixtures.agents.approvals = [finding, { ...written, status: 'undone' }]
+      const undone = render()
+      assert.match(undone, /Undid edit/)
+      assert.match(undone, /Undone/)
+      assert.doesNotMatch(undone, /Undo edit/)
+    })
+
     await t.test('a failed agent offers retry without hiding its sibling result', () => {
       globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, job(12, 'reviewer', 'failed'), finished(job(13, 'verifier'), securityTest)]
-      assert.match(render(), /Fix suggestions could not be prepared/)
+      globalThis.reviewFixtures.agents.approvals = [finding, securityTest]
+      assert.match(render(), /The fix could not be written/)
       assert.match(render(), /> Retry<\/button>/)
       assert.match(render(), /tests\/test_security.py/)
     })
 
     await t.test('decisions unlock tests and updated-code review in both modes', () => {
       globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, finished(job(12, 'reviewer'), fix), finished(job(13, 'verifier'), securityTest)]
-      globalThis.reviewFixtures.agents.approvals = [finding, { ...fix, status: 'approved' }, { ...securityTest, status: 'approved' }]
+      globalThis.reviewFixtures.agents.approvals = [{ ...finding, result: { item_id: 'V1', fix_choice: 'reviewer' } }, { ...fix, status: 'approved' }, { ...securityTest, status: 'approved' }]
       assert.match(render(), /Review updated code/)
       assert.match(render(), />\s*Run tests<\/button>/)
       assert.doesNotMatch(render(), />\s*Approve<\/button>/)
       assert.doesNotMatch(render('single'), /team-progress/)
     })
 
-    await t.test('old review routes do not leave a redundant Verifier Continue button', () => {
-      globalThis.reviewFixtures.agents.messages = [{ ...reviewed, data: { ...reviewed.data, route: ['reviewer', 'verifier'] } }, reviewReply]
-      assert.doesNotMatch(render(), /hasn&#x27;t answered yet|>Continue<\/button>/)
+    await t.test('a Test/Verifier follow-up that proposed no test is not shown', () => {
+      const skipped = finished(job(13, 'verifier'))
+      globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, {
+        ...skipped, content: 'No new test is needed for V1.', data: { ...skipped.data, hidden: true },
+      }]
+      globalThis.reviewFixtures.agents.approvals = [finding]
+      const html = render()
+      assert.doesNotMatch(html, /No new test is needed/)
+      assert.match(html, /One vulnerability\./)
+    })
+
+    await t.test('a review shows the Test/Verifier report, then the Code Reviewer, with nothing left to retry', () => {
+      const report = { id: 15, role: 'agent', thread: 'team', content: 'I ran the unit tests: 3 failed.', data: { agent: 'verifier', reply_to: 10 }, ts: timestamp }
+      globalThis.reviewFixtures.agents.messages = [{ ...reviewed, data: { ...reviewed.data, route: ['verifier', 'reviewer'] } }, report, reviewReply]
+      globalThis.reviewFixtures.agents.approvals = []
+      const html = render()
+      assert.match(html, /I ran the unit tests: 3 failed\./)
+      assert.ok(html.indexOf('I ran the unit tests') < html.indexOf('One vulnerability.'))
+      assert.doesNotMatch(html, /reply is incomplete/)
+    })
+
+    await t.test('a Threat Modeller risk example uses the shared labelled code card', () => {
+      globalThis.reviewFixtures.agents.messages = [{
+        id: 30, role: 'agent', thread: 'team', content: 'Untrusted input reaches the query.',
+        data: {
+          agent: 'threat_modeller',
+          threat_example: {
+            path: 'app/auth.py', language: 'python',
+            code: 'def login(username):\n    return conn.execute(f"SELECT {username}")',
+          },
+        },
+        ts: timestamp,
+      }]
+      globalThis.reviewFixtures.agents.approvals = []
+      const html = render()
+      assert.match(html, /Illustrative risk example/)
+      assert.match(html, /app\/auth.py/)
+      assert.match(html, /Potentially unsafe pattern to recognise/)
+      assert.match(html, /code-copy/)
+    })
+
+    await t.test('only findings and mitigations have direct Add controls', () => {
+      globalThis.reviewFixtures.security.state = {
+        assumptions: [], risks: [], vulnerabilities: [], mitigations: [], tests: [],
+      }
+      const html = renderToStaticMarkup(createElement(SecurityPanel))
+      assert.match(html, /Add to vulnerabilities/)
+      assert.match(html, /Add to mitigations/)
+      assert.doesNotMatch(html, /Add to assumptions|Add to risks/)
     })
   } finally {
     await server.close()
@@ -134,19 +223,27 @@ test('approval-triggered agent work runs concurrently and survives reload/reset'
   globalThis.reviewApi = {
     threads: async () => ({ team: backendMessages, assistant: [] }),
     approvals: async () => backendApprovals,
-    decide: async () => { backendMessages = [job(20, 'reviewer'), job(21, 'verifier')]; backendApprovals = [finding]; return finding },
+    decide: async () => { backendApprovals = [finding]; return finding },
+    chooseFix: async () => {
+      backendMessages = [job(20, 'reviewer'), job(21, 'verifier')]
+      backendApprovals = [{ ...finding, result: { item_id: 'V1', fix_choice: 'reviewer' } }]
+      return backendApprovals[0]
+    },
     followUp: (id) => { calls.push(id); const request = deferred(); requests.set(id, request); return request.promise },
   }
   const server = await createServer({ configFile: false, cacheDir: 'node_modules/.vite-review-store-tests', plugins: [fixturesPlugin(['security', 'workspace', 'ui'], true)], server: { middlewareMode: true, hmr: false } })
   let store
   try {
     const { useAgents } = await server.ssrLoadModule('/src/store/agents.ts')
+    const { useTests } = await server.ssrLoadModule('/src/store/tests.ts')
     store = useAgents
 
-    await t.test('approval starts both requests immediately and merges completed placeholders', async () => {
+    await t.test('approval waits for a choice, then selected work starts and merges completed placeholders', async () => {
       backendApprovals = [{ ...finding, status: 'pending' }]
       await store.getState().load('team')
       assert.equal(await store.getState().decide(1, 'approve'), null)
+      assert.deepEqual(calls, [])
+      assert.equal(await store.getState().chooseFix(1, 'reviewer'), null)
       assert.deepEqual(calls, [20, 21])
       backendMessages = [finished(backendMessages[0], fix), backendMessages[1]]
       requests.get(20).resolve({ messages: [backendMessages[0]], approvals: [fix], next: null })
@@ -226,6 +323,175 @@ test('approval-triggered agent work runs concurrently and survives reload/reset'
       } finally {
         globalThis.reviewApi.threads = originalThreads
       }
+    })
+
+    await t.test('decisions reload the shared state, a rejected vulnerability too; a fix starts no follow-up', async () => {
+      store.getState().reset()
+      calls = []
+      requests = new Map()
+      let loads = 0
+      globalThis.reviewFixtures.security.load = async () => { loads++ }
+      backendMessages = [finished(job(60, 'reviewer'), fix)]
+      backendApprovals = [{ ...finding, status: 'pending' }, fix]
+      await store.getState().load('team')
+      const originalDecide = globalThis.reviewApi.decide
+      globalThis.reviewApi.decide = async (id, decision) => ({
+        ...(id === fix.id ? fix : finding), status: decision === 'approve' ? 'approved' : 'rejected',
+      })
+      try {
+        assert.equal(await store.getState().decide(fix.id, 'approve'), null)
+        assert.deepEqual(calls, []) // the Test/Verifier never writes tests
+        assert.equal(loads, 1) // the approved fix is a planned mitigation
+        assert.equal(await store.getState().decide(finding.id, 'reject'), null)
+        assert.equal(loads, 2) // the rejected vulnerability stays listed as rejected
+      } finally {
+        globalThis.reviewApi.decide = originalDecide
+      }
+    })
+
+    await t.test('choosing reviewer saves first; the written fix then opens in the editor', async () => {
+      store.getState().reset()
+      calls = []
+      requests = new Map()
+      const { useDiagnostics } = await server.ssrLoadModule('/src/store/diagnostics.ts')
+      const steps = []
+      const { workspace, security } = globalThis.reviewFixtures
+      workspace.saveAll = async () => { steps.push('save') }
+      workspace.load = async () => { steps.push('load code') }
+      workspace.open = (path) => steps.push(`open ${path}`)
+      security.load = async () => { steps.push('load state') }
+      backendMessages = []
+      backendApprovals = [{ ...finding, status: 'pending' }]
+      await store.getState().load('team')
+      const originalDecide = globalThis.reviewApi.decide
+      globalThis.reviewApi.decide = async () => {
+        steps.push('decide')
+        backendApprovals = [finding]
+        return finding
+      }
+      const originalChooseFix = globalThis.reviewApi.chooseFix
+      globalThis.reviewApi.chooseFix = async () => {
+        steps.push('choose')
+        backendMessages = [job(80, 'reviewer')]
+        backendApprovals = [{ ...finding, result: { item_id: 'V1', fix_choice: 'reviewer' } }]
+        return backendApprovals[0]
+      }
+      try {
+        assert.equal(await store.getState().decide(finding.id, 'approve'), null)
+        assert.equal(steps[0], 'decide')
+        assert.deepEqual(calls, [])
+        assert.equal(await store.getState().chooseFix(finding.id, 'reviewer'), null)
+        assert.deepEqual(steps.slice(-2), ['save', 'choose'])
+        assert.deepEqual(calls, [80])
+        steps.length = 0
+        backendMessages = [finished(job(80, 'reviewer'), written)]
+        backendApprovals = [finding, written]
+        requests.get(80).resolve({ messages: backendMessages, approvals: [written], next: null })
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.ok(steps.includes('load code') && steps.includes('load state'))
+        assert.equal(steps.at(-1), 'open app/auth.py')
+        assert.deepEqual(useDiagnostics.getState().target, { path: 'app/auth.py', row: 12, column: 1, focus: false })
+        assert.equal(steps.filter((step) => step === 'load code').length, 1)
+      } finally {
+        globalThis.reviewApi.decide = originalDecide
+        globalThis.reviewApi.chooseFix = originalChooseFix
+      }
+    })
+
+    await t.test('undo saves the file, refreshes code and state, and leaves a visible history entry', async () => {
+      store.getState().reset()
+      backendMessages = [finished(job(81, 'reviewer'), written)]
+      backendApprovals = [written]
+      const steps = []
+      const { workspace, security } = globalThis.reviewFixtures
+      workspace.dirty = []
+      workspace.save = async (path) => { steps.push(`save ${path}`) }
+      workspace.load = async () => { steps.push('load code') }
+      workspace.open = (path) => { steps.push(`open ${path}`) }
+      security.load = async () => { steps.push('load state') }
+      await store.getState().load('team')
+      const originalUndo = globalThis.reviewApi.undoFix
+      globalThis.reviewApi.undoFix = async (id) => {
+        steps.push(`undo ${id}`)
+        backendApprovals = [{ ...written, status: 'undone' }]
+        return backendApprovals[0]
+      }
+      try {
+        assert.equal(await store.getState().undoFix(written.id), null)
+        assert.equal(store.getState().approvals[0].status, 'undone')
+        assert.deepEqual(steps.slice(0, 2), ['save app/auth.py', `undo ${written.id}`])
+        assert.ok(steps.includes('load code') && steps.includes('load state'))
+        assert.equal(steps.at(-1), 'open app/auth.py')
+        assert.equal(store.getState().undoing, false)
+      } finally {
+        globalThis.reviewApi.undoFix = originalUndo
+      }
+    })
+
+    await t.test('undo reports a changed file without replacing the local edit', async () => {
+      store.getState().reset()
+      backendMessages = [finished(job(82, 'reviewer'), written)]
+      backendApprovals = [written]
+      await store.getState().load('team')
+      const originalUndo = globalThis.reviewApi.undoFix
+      globalThis.reviewApi.undoFix = async () => { throw new Error('app/auth.py has changed since this fix.') }
+      try {
+        assert.match(await store.getState().undoFix(written.id), /changed since this fix/)
+        assert.equal(store.getState().approvals[0].status, 'written')
+        assert.equal(store.getState().undoing, false)
+      } finally {
+        globalThis.reviewApi.undoFix = originalUndo
+      }
+    })
+
+    await t.test('a fix choice in progress cannot enter the next part', async () => {
+      store.getState().reset()
+      backendMessages = []
+      backendApprovals = [finding]
+      await store.getState().load('team')
+      const save = deferred()
+      const workspace = globalThis.reviewFixtures.workspace
+      const originalSave = workspace.saveAll
+      const originalChooseFix = globalThis.reviewApi.chooseFix
+      let choseOnNewPart = false
+      workspace.saveAll = () => save.promise
+      globalThis.reviewApi.chooseFix = async () => { choseOnNewPart = true; return finding }
+      try {
+        const choosing = store.getState().chooseFix(finding.id, 'reviewer')
+        store.getState().reset()
+        backendApprovals = []
+        await store.getState().load('single')
+        save.resolve()
+        assert.equal(await choosing, null)
+        assert.equal(choseOnNewPart, false)
+        assert.deepEqual(store.getState().approvals, [])
+      } finally {
+        workspace.saveAll = originalSave
+        globalThis.reviewApi.chooseFix = originalChooseFix
+      }
+    })
+
+    await t.test('a Test/Verifier run fills Test Results and the state before the Code Reviewer answers', async () => {
+      store.getState().reset()
+      let loads = 0
+      const tabs = []
+      globalThis.reviewFixtures.security.load = async () => { loads++ }
+      globalThis.reviewFixtures.ui.setBottomTab = (tab) => tabs.push(tab)
+      const run = { status: 'failed', message: '3 failed', counts: { passed: 0, failed: 3, error: 0, skipped: 0 }, tests: [], output: '' }
+      const report = { id: 70, role: 'agent', thread: 'team', content: 'I ran the unit tests: 3 failed.', data: { agent: 'verifier', reply_to: 10, run }, ts: timestamp }
+      const answer = deferred()
+      globalThis.reviewApi.review = async () => ({ messages: [reviewed, report], approvals: [], next: 'reviewer' })
+      globalThis.reviewApi.next = () => answer.promise
+      const reviewing = store.getState().review('team')
+      await flush()
+      assert.deepEqual(useTests.getState().result, run)
+      assert.deepEqual(tabs, ['tests'])
+      assert.equal(loads, 1)
+      assert.equal(store.getState().working, 'reviewer') // the results are showing while the Code Reviewer works
+      assert.ok(store.getState().messages.some((m) => m.id === report.id))
+      answer.resolve({ messages: [reviewReply], approvals: [], next: null })
+      await reviewing
+      assert.equal(store.getState().working, null)
     })
   } finally {
     store?.getState().reset()

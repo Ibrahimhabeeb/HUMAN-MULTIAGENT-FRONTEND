@@ -1,14 +1,14 @@
 import { create } from 'zustand'
 import { api } from '../api/client'
-import type { HumanCategory, Proposal, SecurityState } from '../api/types'
+import type { HumanAddCategory, HumanCategory, Proposal, SecurityState } from '../api/types'
 import { showError } from './ui'
 
-// The shared security state (team mode). The human changes it directly; agents only propose.
+// The shared security state (team mode). The developer may add findings and mitigations and edit existing entries.
 interface SecurityStore {
   state: SecurityState | null
   load: () => Promise<void>
   reset: () => void
-  add: (category: HumanCategory, body: Proposal) => Promise<string | null>
+  add: (category: HumanAddCategory, body: Proposal) => Promise<string | null>
   edit: (category: HumanCategory, id: string, changes: Proposal) => Promise<string | null>
   remove: (category: HumanCategory, id: string) => Promise<void>
 }

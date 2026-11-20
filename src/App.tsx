@@ -45,7 +45,7 @@ export default function App() {
         <Screen state={state} />
       ) : (
         <StudyPage title="Connecting…" restart={false}>
-          <p className="hint">Waiting for the backend at port 8000.</p>
+          <p className="hint">Connecting to the study service.</p>
           <div className="study-actions">
             <button className="btn secondary" onClick={() => void useStudy.getState().refresh()}>
               Try again

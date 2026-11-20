@@ -1,4 +1,4 @@
-import { editor, Uri } from 'monaco-editor'
+import { editor, Range, Uri } from 'monaco-editor'
 import { create } from 'zustand'
 import { ApiError, api } from '../api/client'
 import type { FileMap } from '../api/types'
@@ -40,6 +40,20 @@ function cancelSave(path: string) {
   saveTimers.delete(path)
 }
 
+// Replaces only the text that changed, as one undo step, so Ctrl+Z works and highlights elsewhere stay on their lines.
+function applyChange(model: editor.ITextModel, content: string) {
+  model.pushEOL(editor.EndOfLineSequence.LF) // the backend's text always uses LF
+  const old = model.getValue()
+  let start = 0
+  while (start < old.length && start < content.length && old[start] === content[start]) start++
+  let end = 0
+  while (end < old.length - start && end < content.length - start && old.at(-1 - end) === content.at(-1 - end)) end++
+  const range = Range.fromPositions(model.getPositionAt(start), model.getPositionAt(old.length - end))
+  model.pushStackElement()
+  model.pushEditOperations([], [{ range, text: content.slice(start, content.length - end) }], () => null)
+  model.pushStackElement()
+}
+
 export const useWorkspace = create<WorkspaceStore>((set, get) => ({
   ...empty,
 
@@ -57,10 +71,11 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
         selectedPath: selectedPath && stillOpen.includes(selectedPath) ? selectedPath : (stillOpen.at(-1) ?? null),
       })
       // The editor isn't driven by React (that can drop keystrokes), so changes from the server, such as an
-      // approved test file, go straight into its text. Files with unsaved typing are left alone.
+      // approved test file or a fix the Code Reviewer wrote, go straight into its text. Files with unsaved typing
+      // are left alone.
       for (const [path, node] of Object.entries(files)) {
         const model = node.type === 'file' && !dirty.includes(path) ? editor.getModel(Uri.parse(path)) : null
-        if (model && node.type === 'file' && model.getValue() !== node.content) model.setValue(node.content)
+        if (model && node.type === 'file' && model.getValue() !== node.content) applyChange(model, node.content)
       }
     } catch (error) {
       showError(error)

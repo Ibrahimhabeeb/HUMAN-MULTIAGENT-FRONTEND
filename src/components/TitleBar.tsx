@@ -7,7 +7,6 @@ import { useStudy } from '../store/study'
 import { useTests } from '../store/tests'
 import { useUi } from '../store/ui'
 import { Codicon } from './Icons'
-import { ModeSwitch } from './ModeSwitch'
 import { RestartButton } from './RestartButton'
 
 export function TitleBar({ state }: { state: StudyState }) {
@@ -42,9 +41,6 @@ export function TitleBar({ state }: { state: StudyState }) {
       </div>
 
       <div className="titlebar-right">
-        <ModeSwitch />
-        <span className="titlebar-sep" />
-
         <button className="run-btn" disabled={running} onClick={() => useTests.getState().run(state.mode)}>
           <Codicon name={running ? 'loading' : 'beaker'} className={running ? 'codicon-modifier-spin' : ''} />
           {running ? 'Running…' : 'Run tests'}

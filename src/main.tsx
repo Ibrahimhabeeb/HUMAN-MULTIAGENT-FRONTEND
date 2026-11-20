@@ -1,6 +1,7 @@
 import '@vscode/codicons/dist/codicon.css'
 import './styles/workbench.css'
 import './styles/study.css'
+import './styles/task-guide.css'
 import './monaco/setup'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
