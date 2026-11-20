@@ -21,6 +21,7 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   mark_resolved: 'Mark fix as implemented',
   propose_test: 'New test file',
   suggest_fix: 'Suggested fix',
+  write_fix: 'Fix written',
 }
 
 /** The agents on the latest developer message's route that haven't answered it yet, in order. */

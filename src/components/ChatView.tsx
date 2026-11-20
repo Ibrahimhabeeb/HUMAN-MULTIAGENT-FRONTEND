@@ -10,6 +10,7 @@ import { useUi } from '../store/ui'
 import { useWorkspace } from '../store/workspace'
 import { ApprovalCard } from './Approvals'
 import { CodeBlock } from './CodeBlock'
+import { EditedFileCard } from './EditedFileCard'
 import { Codicon } from './Icons'
 import { Markdown } from './Markdown'
 
@@ -132,8 +133,10 @@ function AgentMessage({ message }: { message: Message }) {
             <div className="card-note"><Codicon name="warning" /> Potentially unsafe pattern to recognise — not code to use as a solution.</div>
           </section>
         )}
-        {approvals.map((approval) => (
-          <ApprovalCard key={approval.id} approval={approval} />
+        {approvals.map((approval) => approval.action_type === 'write_fix' ? (
+          <EditedFileCard key={approval.id} approval={approval} />
+        ) : (
+          <ApprovalCard key={approval.id} approval={approval} showFixChoice={message.thread === 'team'} />
         ))}
         {risks.length > 0 && (
           <button className="state-card" onClick={() => showRightTab('approvals')}>
@@ -190,7 +193,10 @@ function Waiting({ text, working }: { text: string | null; working: Agent | 'rou
 function FollowUpMessage({ message }: { message: Message }) {
   const agent = message.data.agent ?? 'reviewer'
   const failed = message.data.status === 'failed'
-  const task = agent === 'reviewer' ? 'Fix suggestions' : 'Security tests'
+  const guidance = message.data.fix_choice === 'developer'
+  const fix = agent === 'reviewer' && !guidance
+  const failure = guidance ? 'Fix guidance could not be prepared.' : fix ? 'The fix could not be written.' : 'Security tests could not be prepared.'
+  const progress = guidance ? 'Preparing a suggested fix for you to write...' : fix ? 'Writing the fix. The editor is locked until it is done...' : 'Preparing security tests...'
   return (
     <div className="msg agent follow-up" role="status">
       <div className="msg-head">
@@ -200,7 +206,7 @@ function FollowUpMessage({ message }: { message: Message }) {
       </div>
       <div className="msg-body follow-up-status">
         <Codicon name={failed ? 'warning' : 'loading'} className={failed ? '' : 'codicon-modifier-spin'} />
-        <span>{failed ? `${task} could not be prepared.` : `Preparing ${task.toLowerCase()}...`}</span>
+        <span>{failed ? (message.data.error || failure) : progress}</span>
         {failed && (
           <button className="btn small secondary" onClick={() => useAgents.getState().retryFollowUp(message.id)}>
             <Codicon name="refresh" /> Retry
@@ -215,20 +221,30 @@ function Composer({ mode, busy }: { mode: Mode; busy: boolean }) {
   const [text, setText] = useState('')
   const messages = useAgents((s) => s.messages)
   const approvals = useAgents((s) => s.approvals)
+  const mitigations = useSecurity((s) => s.state?.mitigations)
   const files = useWorkspace((s) => s.files)
   const running = useTests((s) => s.running)
   const pending = approvals.filter((a) => a.status === 'pending')
+  const awaitingFixChoice = mode === 'team' ? approvals.find((a) => a.action_type === 'propose_vulnerability'
+    && a.status === 'approved' && !a.result?.fix_choice
+    && !mitigations?.some((m) => m.vulnerability_id === a.result?.item_id)) : undefined
   const reviewed = messages.some((m) => m.data.snapshot)
   const jobs = messages.filter(followUpPending)
   const preparing = jobs.length > 0
-  const fixWorking = jobs.some((m) => m.data.agent === 'reviewer')
+  const fixWorking = jobs.some((m) => m.data.agent === 'reviewer' && m.data.fix_choice !== 'developer')
+  const guidanceWorking = jobs.some((m) => m.data.fix_choice === 'developer')
   const testWorking = jobs.some((m) => m.data.agent === 'verifier')
-  const progressLabel = fixWorking && testWorking ? 'Preparing fixes and tests' : fixWorking ? 'Preparing fix suggestions' : 'Preparing security tests'
+  const progressLabel = fixWorking && testWorking ? 'Writing fixes and preparing tests' : fixWorking ? 'Writing the fix'
+    : guidanceWorking ? 'Preparing fix guidance' : 'Preparing security tests'
   const testsAvailable = Object.keys(files).some((p) => p.startsWith('tests/') && p.endsWith('.py'))
   const reviewLabel = reviewed ? 'Review updated code' : 'Ready for review'
 
   function showProposal() {
     document.getElementById(`approval-${pending[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  function showFixChoice() {
+    if (awaitingFixChoice) document.getElementById(`approval-${awaitingFixChoice.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   async function send() {
@@ -246,6 +262,10 @@ function Composer({ mode, busy }: { mode: Mode; busy: boolean }) {
         ) : pending.length > 0 ? (
           <button className="btn primary" disabled={busy} onClick={showProposal}>
             <Codicon name="checklist" /> Review proposals ({pending.length})
+          </button>
+        ) : awaitingFixChoice ? (
+          <button className="btn primary" disabled={busy} onClick={showFixChoice}>
+            <Codicon name="edit" /> Choose who writes the fix
           </button>
         ) : (
           <button className="btn primary" disabled={busy} onClick={() => useAgents.getState().review(mode)}>
@@ -288,13 +308,14 @@ function Composer({ mode, busy }: { mode: Mode; busy: boolean }) {
   )
 }
 
-export function ChatView({ mode }: { mode: Mode }) {
+export function ChatView({ mode, showChatPrompt = false }: { mode: Mode; showChatPrompt?: boolean }) {
   const messages = useAgents((s) => s.messages)
   const approvals = useAgents((s) => s.approvals)
   const sending = useAgents((s) => s.sending)
   // A few lightweight test stores predate streaming; the live store always provides this array.
   const streaming = useAgents((s) => s.streaming ?? [])
   const working = useAgents((s) => s.working)
+  const undoing = useAgents((s) => s.undoing)
   const turnError = useAgents((s) => s.turnError)
   const vulnerabilities = useSecurity((s) => s.state?.vulnerabilities)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -303,7 +324,8 @@ export function ChatView({ mode }: { mode: Mode }) {
   const unanswered = mode === 'team' && !working && !followingUp ? stillToAnswer(messages)[0] : undefined
   // A failed turn can save proposals before saving its reply. Keep those decisions reachable after a reload.
   const attached = new Set(messages.flatMap((m) => m.data.approval_ids ?? []))
-  const unattached = approvals.filter((a) => a.status === 'pending' && !attached.has(a.id))
+  const unattached = approvals.filter((a) => !attached.has(a.id) && (a.status === 'pending'
+    || (mode === 'team' && a.action_type === 'propose_vulnerability' && a.status === 'approved' && !a.result?.fix_choice)))
   const hasApprovedVulnerability = Boolean(vulnerabilities?.length) || approvals.some(
     (a) => a.action_type === 'propose_vulnerability' && a.status === 'approved',
   )
@@ -346,7 +368,7 @@ export function ChatView({ mode }: { mode: Mode }) {
         {unattached.length > 0 && (
           <div className="chat-proposals">
             {unattached.map((approval) => (
-              <ApprovalCard key={approval.id} approval={approval} />
+              <ApprovalCard key={approval.id} approval={approval} showFixChoice={mode === 'team'} />
             ))}
           </div>
         )}
@@ -367,7 +389,15 @@ export function ChatView({ mode }: { mode: Mode }) {
         )}
       </div>
 
-      <Composer mode={mode} busy={Boolean(working) || followingUp} />
+      {showChatPrompt && (
+        <div className="task-guide-chat" role="status">
+          <span className="task-guide-chat-step">Start with chat</span>
+          <h2>Ask about your task</h2>
+          <p>Ask {mode === 'team' ? 'the agent team' : 'the assistant'} about the task, the files, or where to begin. You can send a question whenever you're ready.</p>
+          <span className="task-guide-chat-arrow"><Codicon name="arrow-down" /> Write a message below</span>
+        </div>
+      )}
+      <Composer mode={mode} busy={Boolean(working) || followingUp || undoing} />
     </>
   )
 }

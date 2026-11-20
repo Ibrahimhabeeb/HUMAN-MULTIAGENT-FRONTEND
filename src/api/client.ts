@@ -5,9 +5,11 @@ import type {
   CompletionResult,
   ConsentContent,
   Decision,
+  FixChoice,
   FileMap,
   FsNode,
   HumanCategory,
+  HumanAddCategory,
   InformationContent,
   Message,
   Mode,
@@ -38,7 +40,7 @@ async function errorMessage(response: Response): Promise<string> {
   } catch {
     // not JSON: usually the Vite proxy saying the backend is down
   }
-  if (response.status >= 500) return 'The backend did not respond. Is it running on port 8000?'
+  if (response.status >= 500) return 'The study service is temporarily unavailable. Please try again shortly.'
   return `${response.status} ${response.statusText}`
 }
 
@@ -68,7 +70,7 @@ async function sessionToken(): Promise<string> {
           body: JSON.stringify({ mode: 'team' }),
         })
       } catch {
-        throw new ApiError(0, 'Cannot reach the backend. Is it running on port 8000?')
+        throw new ApiError(0, 'Cannot connect to the study service. Check your connection and try again.')
       }
       if (!response.ok) throw new ApiError(response.status, await errorMessage(response))
       const { token } = await response.json()
@@ -92,7 +94,7 @@ export async function request<T>(method: string, path: string, body?: unknown, s
       signal,
     })
   } catch {
-    throw new ApiError(0, 'Cannot reach the backend. Is it running on port 8000?')
+    throw new ApiError(0, 'Cannot connect to the study service. Check your connection and try again.')
   }
   if (!response.ok) {
     if (response.status === 401 && storedToken() === token) sessionStorage.removeItem(SESSION_STORAGE_KEY)
@@ -105,7 +107,7 @@ export async function request<T>(method: string, path: string, body?: unknown, s
   return data as T
 }
 
-async function requestStream(path: string, body: unknown, onEvent: (event: ChatStreamEvent) => void): Promise<void> {
+async function requestStream(path: string, body: unknown, onEvent: (event: ChatStreamEvent) => void | Promise<void>): Promise<void> {
   const token = await sessionToken()
   let response: Response
   try {
@@ -116,7 +118,7 @@ async function requestStream(path: string, body: unknown, onEvent: (event: ChatS
       body: JSON.stringify(body),
     })
   } catch {
-    throw new ApiError(0, 'Cannot reach the backend. Is it running on port 8000?')
+    throw new ApiError(0, 'Cannot connect to the study service. Check your connection and try again.')
   }
   if (!response.ok) {
     if (response.status === 401 && storedToken() === token) sessionStorage.removeItem(SESSION_STORAGE_KEY)
@@ -136,7 +138,7 @@ async function requestStream(path: string, body: unknown, onEvent: (event: ChatS
       throw new ApiError(502, 'The backend sent an invalid chat response.')
     }
     if (event.type === 'error') throw new ApiError(event.status, event.detail)
-    onEvent(event)
+    await onEvent(event)
   }
 
   for (;;) {
@@ -193,14 +195,14 @@ export const api = {
   runTests: () => request<RunResult>('POST', '/workspace/tests/run'),
 
   securityState: () => request<SecurityState>('GET', '/workspace/state'),
-  addItem: (category: HumanCategory, body: Proposal) => request<unknown>('POST', `/workspace/state/${category}`, body),
+  addItem: (category: HumanAddCategory, body: Proposal) => request<unknown>('POST', `/workspace/state/${category}`, body),
   editItem: (category: HumanCategory, id: string, changes: Proposal) =>
     request<unknown>('PATCH', `/workspace/state/${category}/${id}`, changes),
   deleteItem: (category: HumanCategory, id: string) => request<void>('DELETE', `/workspace/state/${category}/${id}`),
 
   threads: () => request<Record<string, Message[]>>('GET', '/chat'),
   send: (thread: Thread, content: string) => request<TurnResult>('POST', `/chat/${thread}`, { content }),
-  sendStream: (thread: Thread, content: string, onEvent: (event: ChatStreamEvent) => void) =>
+  sendStream: (thread: Thread, content: string, onEvent: (event: ChatStreamEvent) => void | Promise<void>) =>
     requestStream(`/chat/${thread}/stream`, { content }, onEvent),
   next: () => request<TurnResult>('POST', '/chat/next'),
   review: () => request<TurnResult>('POST', '/chat/review'),
@@ -208,4 +210,6 @@ export const api = {
 
   approvals: () => request<Approval[]>('GET', '/approvals'),
   decide: (id: number, decision: Decision) => request<Approval>('POST', `/approvals/${id}/decide`, { decision }),
+  chooseFix: (id: number, choice: FixChoice) => request<Approval>('POST', `/approvals/${id}/fix-choice`, { choice }),
+  undoFix: (id: number) => request<Approval>('POST', `/approvals/${id}/undo`),
 }

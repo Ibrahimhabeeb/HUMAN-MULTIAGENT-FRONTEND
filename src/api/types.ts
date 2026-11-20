@@ -58,8 +58,11 @@ export interface Message {
     snapshot?: string // set on a review request
     kind?: 'vulnerability_follow_up'
     status?: 'queued' | 'running' | 'failed' | 'complete'
+    error?: string | null
     vulnerability_id?: string
+    fix_choice?: 'reviewer' | 'developer'
     hidden?: boolean // a Test/Verifier follow-up that proposed no test: kept for the researcher, not shown
+    run?: RunResult // the Test/Verifier's run, shown in Test Results
     started_at?: number
     threat_example?: {
       path: string
@@ -77,9 +80,12 @@ export type ActionType =
   | 'mark_resolved'
   | 'propose_test'
   | 'suggest_fix'
+  | 'write_fix'
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suggested' // suggested: a risk, no decision
+// No decision for these two: suggested is a risk, written is a fix the Code Reviewer put in the code.
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suggested' | 'written' | 'undone'
 export type Decision = 'approve' | 'reject'
+export type FixChoice = 'reviewer' | 'developer'
 export type Proposal = Record<string, unknown>
 
 export interface Approval {
@@ -110,6 +116,7 @@ export type ChatStreamEvent =
 
 export type Severity = 'Low' | 'Medium' | 'High' | 'Critical'
 export type HumanCategory = 'assumptions' | 'risks' | 'vulnerabilities' | 'mitigations'
+export type HumanAddCategory = 'vulnerabilities' | 'mitigations'
 
 interface StateItem {
   id: string
@@ -140,7 +147,7 @@ export interface Vulnerability extends StateItem {
   status: 'accepted' | 'rejected' // the developer's decision; a rejected one stays listed
 }
 
-// A fix the Code Reviewer suggested and the human approved.
+// A fix for a vulnerability: the Code Reviewer's, written into the code, or one the human added.
 export interface Mitigation extends StateItem {
   vulnerability_id: string | null
   description: string

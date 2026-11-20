@@ -6,14 +6,14 @@ import { ChatView } from './ChatView'
 import { Codicon } from './Icons'
 
 // The conversation (including pending decisions), suggested risks, and decision history.
-export function AgentChat({ mode }: { mode: Mode }) {
+export function AgentChat({ mode, showChatPrompt = false }: { mode: Mode; showChatPrompt?: boolean }) {
   const tab = useUi((s) => s.rightTab)
   const showRightTab = useUi((s) => s.showRightTab)
   const toggleChat = useUi((s) => s.toggleChat)
   const waiting = useAgents((s) => s.approvals.filter((a) => a.status === 'pending').length)
 
   return (
-    <div className="agent-chat">
+    <div className={showChatPrompt ? 'agent-chat chat-invitation' : 'agent-chat'}>
       <div className="sidebar-title">
         <span>{mode === 'team' ? 'Agent Room' : 'Assistant'}</span>
         <div className="pane-actions visible">
@@ -32,7 +32,7 @@ export function AgentChat({ mode }: { mode: Mode }) {
         </button>
       </div>
 
-      {tab === 'chat' ? <ChatView mode={mode} /> : <ApprovalsView />}
+      {tab === 'chat' ? <ChatView mode={mode} showChatPrompt={showChatPrompt} /> : <ApprovalsView />}
     </div>
   )
 }

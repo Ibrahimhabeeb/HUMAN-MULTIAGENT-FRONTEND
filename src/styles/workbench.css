@@ -1289,6 +1289,13 @@ kbd {
 .mini-btn.reject:hover {
   background: #5a1d1d;
 }
+.mini-btn.write-self {
+  background: #3a3d41;
+  color: #fff;
+}
+.mini-btn.write-self:hover {
+  background: #50545a;
+}
 .approval {
   font-size: 11px;
 }
@@ -1374,24 +1381,13 @@ kbd {
   color: var(--fg);
 }
 
+/* Everything in the chat wraps to the panel's width, at any size, so it never has to be dragged wider. */
 .chat-scroll {
   flex: 1;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 8px 6px 16px;
-}
-/* Wide code keeps its full width and the whole chat scrolls sideways, instead of squeezing it into the panel. */
-.chat-scroll .card,
-.chat-scroll .code-block {
-  width: fit-content;
-  min-width: 100%;
-  max-width: none;
-}
-.chat-scroll .markdown pre {
-  width: max-content;
-  min-width: 100%;
-}
-.chat-scroll .markdown table {
-  display: table;
 }
 .msg {
   padding: 10px 16px;
@@ -1538,7 +1534,8 @@ kbd {
   border: 1px solid var(--border);
   padding: 8px;
   border-radius: 4px;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .markdown pre code {
   background: none;
@@ -1628,6 +1625,131 @@ kbd {
 .delta .del {
   color: #f48771;
 }
+.file-edit-card {
+  border-color: var(--border);
+}
+.file-edit-card.undone {
+  border-color: #59616a;
+}
+.file-edit-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 62px;
+  padding: 10px 12px;
+}
+.file-edit-summary > .file-icon {
+  flex: none;
+  font-size: 18px;
+}
+.file-edit-description {
+  flex: 1 1 140px;
+  min-width: 140px;
+}
+.file-edit-title {
+  color: var(--fg-bright);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.file-edit-path {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.file-edit-path:hover {
+  text-decoration: underline;
+}
+.file-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-left: auto;
+}
+.file-edit-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.file-edit-action:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.file-edit-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.file-edit-action.view-changes {
+  border-color: var(--border);
+}
+.file-edit-undone {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.file-edit-diff {
+  border-top: 1px solid var(--border-subtle);
+  background: #181b20;
+  min-width: 0;
+}
+.file-edit-diff-heading {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--fg-muted);
+  font: 12px/1.4 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.file-edit-diff pre {
+  margin: 0;
+  padding: 6px 0;
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.file-edit-line {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  padding: 0 10px;
+}
+.file-edit-line.add {
+  background: rgba(82, 151, 95, 0.17);
+  color: #b4dfba;
+}
+.file-edit-line.remove {
+  background: rgba(209, 84, 75, 0.17);
+  color: #f2b3ac;
+}
+.file-edit-line.context {
+  color: var(--fg-muted);
+}
+.file-edit-line code {
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+.file-edit-error {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-subtle);
+  color: #f48771;
+  font-size: 12px;
+}
 .card-actions {
   display: flex;
   align-items: center;
@@ -1641,6 +1763,10 @@ kbd {
   font-size: 12px;
   color: #f48771;
   border-top: 1px solid #333;
+}
+.card-note.fix-choice-question {
+  color: var(--fg);
+  background: rgba(14, 99, 156, 0.12);
 }
 .threat-example-card {
   border-color: rgba(204, 167, 0, 0.55);

@@ -1,7 +1,8 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { Group, Panel, Separator, usePanelRef, type PanelImperativeHandle } from 'react-resizable-panels'
 import type { StudyState } from '../api/types'
 import { loadPart, resetPart } from '../store/part'
+import { useAgents } from '../store/agents'
 import { useUi } from '../store/ui'
 import { ActivityBar } from './ActivityBar'
 import { AgentChat } from './AgentChat'
@@ -39,6 +40,10 @@ export function Workbench({ state }: { state: StudyState }) {
   const sidebarVisible = useUi((s) => s.sidebarVisible)
   const panelVisible = useUi((s) => s.panelVisible)
   const chatVisible = useUi((s) => s.chatVisible)
+  const [readyPart, setReadyPart] = useState<string | null>(null)
+  const partKey = `${state.participant}/${state.part}`
+  const hasAsked = useAgents((s) => s.messages.some((message) => message.role === 'human'))
+  const showChatPrompt = readyPart === partKey && !hasAsked
 
   const sidebarRef = usePanelRef()
   const panelRef = usePanelRef()
@@ -47,11 +52,15 @@ export function Workbench({ state }: { state: StudyState }) {
   useCollapsible(panelRef, panelVisible)
   useCollapsible(chatRef, chatVisible)
 
-  const partKey = `${state.participant}/${state.part}`
   useEffect(() => {
-    void loadPart(mode)
-    return () => resetPart()
+    let mounted = true
+    void loadPart(mode).then(() => { if (mounted) setReadyPart(partKey) })
+    return () => { mounted = false; resetPart() }
   }, [partKey, mode])
+
+  useEffect(() => {
+    if (showChatPrompt) useUi.getState().showRightTab('chat')
+  }, [showChatPrompt])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -134,7 +143,7 @@ export function Workbench({ state }: { state: StudyState }) {
             onResize={syncVisibility('chatVisible')}
             className="chat-panel"
           >
-            <AgentChat mode={mode} />
+            <AgentChat mode={mode} showChatPrompt={showChatPrompt} />
           </Panel>
         </Group>
       </div>

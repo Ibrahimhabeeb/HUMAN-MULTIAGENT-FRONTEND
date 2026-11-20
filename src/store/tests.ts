@@ -9,10 +9,11 @@ interface TestsStore {
   result: RunResult | null
   running: boolean
   run: (mode: Mode) => Promise<void>
+  show: (result: RunResult) => void
   reset: () => void
 }
 
-export const useTests = create<TestsStore>((set) => ({
+export const useTests = create<TestsStore>((set, get) => ({
   result: null,
   running: false,
 
@@ -20,14 +21,18 @@ export const useTests = create<TestsStore>((set) => ({
     set({ running: true })
     try {
       await useWorkspace.getState().saveAll() // the tests run on the saved files
-      set({ result: await api.runTests() })
-      useUi.getState().setBottomTab('tests')
-      if (mode === 'team') await useSecurity.getState().load() // each security test keeps its latest result
+      get().show(await api.runTests())
+      if (mode === 'team') await useSecurity.getState().load() // each unit test keeps its latest result
     } catch (error) {
       showError(error)
     } finally {
       set({ running: false })
     }
+  },
+
+  show: (result) => {
+    set({ result })
+    useUi.getState().setBottomTab('tests')
   },
 
   reset: () => set({ result: null, running: false }),

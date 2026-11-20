@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type {
   Assumption,
+  HumanAddCategory,
   HumanCategory,
   Mitigation,
   Proposal,
@@ -44,7 +45,7 @@ interface SectionProps {
   from: string // the agent whose work this section holds
   icon: string
   count: number
-  category?: HumanCategory
+  category?: HumanAddCategory
   empty?: string
   children: ReactNode
 }
@@ -217,9 +218,8 @@ function mitigationMeta(mitigation: Mitigation): ReactNode {
   )
 }
 
-// The shared security state (team mode): the human edits it directly; agent proposals are approved in chat.
-// Risks and assumptions come from the Threat Modeller, vulnerabilities and mitigations (approved fixes) from the
-// Code Reviewer, and each unit test's latest result from the Test/Verifier.
+// Risks and assumptions come from the Threat Modeller; developers can add findings and mitigations directly.
+// Each unit test's latest result comes from the Test/Verifier.
 export function SecurityPanel() {
   const state = useSecurity((s) => s.state)
   const waiting = useAgents((s) => s.approvals.filter((a) => a.status === 'pending').length)
@@ -266,7 +266,7 @@ export function SecurityPanel() {
       </div>
 
       <div className="security-scroll">
-        <Section title="Risks" from={AGENTS.threat_modeller.name} icon="warning" count={state.risks.length} category="risks">
+        <Section title="Risks" from={AGENTS.threat_modeller.name} icon="warning" count={state.risks.length}>
           {state.risks.map((risk) => (
             <ItemCard
               key={risk.id}
@@ -284,7 +284,6 @@ export function SecurityPanel() {
           from={AGENTS.threat_modeller.name}
           icon="info"
           count={state.assumptions.length}
-          category="assumptions"
         >
           {state.assumptions.map((a) => (
             <ItemCard key={a.id} category="assumptions" item={a} text={a.text} />

@@ -2,6 +2,8 @@ import Editor from '@monaco-editor/react'
 import { useEffect, useRef } from 'react'
 import { Uri, type editor } from 'monaco-editor'
 import { fileName, languageOf } from '../lib/files'
+import { followUpPending } from '../lib/review'
+import { useAgents } from '../store/agents'
 import { useWorkspace } from '../store/workspace'
 import { Codicon, FileIcon } from './Icons'
 import { useDiagnostics } from '../store/diagnostics'
@@ -14,7 +16,7 @@ function revealTarget(instance: editor.IStandaloneCodeEditor) {
   const position = { lineNumber: target.row, column: target.column }
   instance.setPosition(position)
   instance.revealPositionInCenter(position)
-  instance.focus()
+  if (target.focus) instance.focus()
 }
 
 // Tabs and the Monaco editor. Typing goes into the workspace store, which saves it to the backend.
@@ -30,6 +32,8 @@ export function EditorArea() {
   const openPaths = useWorkspace((s) => s.openPaths)
   const selectedPath = useWorkspace((s) => s.selectedPath)
   const dirty = useWorkspace((s) => s.dirty)
+  // Typing while the Code Reviewer writes a fix would save over it.
+  const fixing = useAgents((s) => s.undoing || s.messages.some((m) => followUpPending(m) && m.data.agent === 'reviewer' && m.data.fix_choice !== 'developer'))
   const { open, close, edit } = useWorkspace.getState()
   const selected = selectedPath ? files[selectedPath] : undefined
 
@@ -95,6 +99,8 @@ export function EditorArea() {
               quickSuggestionsDelay: 120,
               suggestOnTriggerCharacters: true,
               wordBasedSuggestions: 'currentDocument',
+              readOnly: fixing,
+              readOnlyMessage: { value: 'A code edit is in progress. You can type again in a moment.' },
               // Type into a real (hidden) text box, so keyboard extensions such as Vimium know you're typing
               // and leave letter keys alone. Monaco's newer input method is a plain div they don't recognise.
               editContext: false,

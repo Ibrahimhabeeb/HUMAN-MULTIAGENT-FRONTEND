@@ -54,7 +54,7 @@
   background: #181b20;
   text-align: left;
   word-break: normal;
-  overflow-wrap: normal;
+  overflow-wrap: anywhere;
   tab-size: 4;
 }
 .code-block pre.code-block-content code {
@@ -63,7 +63,7 @@
   background: transparent;
   color: #d8dee9;
   font: 13px/1.65 var(--font-mono);
-  white-space: pre;
+  white-space: pre-wrap;
 }
 .code-block .hljs-keyword, .code-block .hljs-selector-tag { color: #d2a8ff; }
 .code-block .hljs-string, .code-block .hljs-attr { color: #a5d6a7; }

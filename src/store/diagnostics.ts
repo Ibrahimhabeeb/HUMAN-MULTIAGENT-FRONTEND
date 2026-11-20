@@ -10,10 +10,10 @@ export interface FileDiagnostics {
 
 interface DiagnosticsStore {
   files: Record<string, FileDiagnostics>
-  target: { path: string; row: number; column: number } | null
+  target: { path: string; row: number; column: number; focus: boolean } | null
   sync: (files: FileMap, immediate?: boolean) => void
   reset: () => void
-  navigate: (path: string, row: number, column: number) => void
+  navigate: (path: string, row: number, column: number, focus?: boolean) => void
 }
 
 const buffers = new Map<string, string>()
@@ -74,5 +74,5 @@ export const useDiagnostics = create<DiagnosticsStore>((set, get) => ({
     buffers.clear()
     set({ files: {}, target: null })
   },
-  navigate: (path, row, column) => set({ target: { path, row, column } }),
+  navigate: (path, row, column, focus = true) => set({ target: { path, row, column, focus } }),
 }))

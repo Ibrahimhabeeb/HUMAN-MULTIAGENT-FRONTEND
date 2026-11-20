@@ -1,11 +1,16 @@
 import { create } from 'zustand'
 import { api } from '../api/client'
-import type { Agent, Approval, Decision, Message, Mode, Specialist, TurnResult } from '../api/types'
+import type { Agent, Approval, Decision, FixChoice, Message, Mode, Specialist, TurnResult } from '../api/types'
 import { REVIEW_MESSAGE } from '../lib/review'
 import { THREAD, stillToAnswer } from '../lib/agents'
+import { useDiagnostics } from './diagnostics'
 import { useSecurity } from './security'
+import { useTests } from './tests'
 import { showError, useUi } from './ui'
 import { useWorkspace } from './workspace'
+
+const STREAM_CHARACTERS_PER_SECOND = 160
+const STREAM_CHUNK_SIZE = 8
 
 // The conversation of the current part and the proposals waiting for the human's decision.
 // In team mode each developer message has a route (e.g. Planner, then Threat Modeller); their replies stream in
@@ -17,6 +22,7 @@ interface AgentStore {
   working: Agent | 'routing' | null // who is answering right now
   turnError: string | null
   approvals: Approval[]
+  undoing: boolean
   load: (mode: Mode) => Promise<void>
   reset: () => void
   send: (mode: Mode, content: string) => Promise<boolean>
@@ -24,6 +30,8 @@ interface AgentStore {
   carryOn: (mode: Mode) => Promise<void>
   retryFollowUp: (id: number) => void
   decide: (id: number, decision: Decision) => Promise<string | null>
+  chooseFix: (id: number, choice: FixChoice) => Promise<string | null>
+  undoFix: (id: number) => Promise<string | null>
 }
 
 export const useAgents = create<AgentStore>((set, get) => {
@@ -45,23 +53,46 @@ export const useAgents = create<AgentStore>((set, get) => {
 
   function mergeApprovals(incoming: Approval[]) {
     const decided = new Map(get().approvals.filter((a) => a.status !== 'pending').map((a) => [a.id, a]))
-    return merge(get().approvals, incoming.map((a) => decided.get(a.id) ?? a))
+    return merge(get().approvals, incoming.map((a) => a.status === 'pending' ? decided.get(a.id) ?? a : a))
   }
 
   function add(result: TurnResult) {
     const knownApprovals = new Set(get().approvals.map((a) => a.id))
+    const fixes = newFixes(result.approvals)
     set({
       messages: mergeMessages(result.messages),
       approvals: mergeApprovals(result.approvals),
     })
     const waiting = result.approvals.filter((a) => a.status === 'pending' && !knownApprovals.has(a.id)).length
     if (waiting > 0) useUi.getState().toast(`${waiting} new proposal(s) waiting for your approval.`)
-    // Suggested risks are already in the security state, and so is each unit test's latest result.
-    if (result.approvals.some((a) => a.status === 'suggested') || ranTests(result.messages)) void useSecurity.getState().load()
+    // Suggested risks are already in the security state.
+    if (result.approvals.some((a) => a.status === 'suggested')) void useSecurity.getState().load()
+    showTestRun(result.messages)
+    void showFixes(fixes)
   }
 
-  function ranTests(messages: Message[]) {
-    return messages.some((m) => m.role === 'agent' && m.data.agent === 'verifier')
+  function newFixes(incoming: Approval[]) {
+    const known = new Set(get().approvals.map((a) => a.id))
+    return incoming.filter((a) => a.status === 'written' && !known.has(a.id))
+  }
+
+  // A fix the Code Reviewer wrote: the new code goes into the editor, which opens at it, and the state has its
+  // mitigation. Findings below it have moved, so the ones still waiting are fetched again.
+  async function showFixes(fixes: Approval[]) {
+    const fix = fixes.at(-1)
+    if (!fix) return
+    await Promise.all([useWorkspace.getState().load(), useSecurity.getState().load(), get().load('team')])
+    const file = String(fix.proposal.file)
+    useWorkspace.getState().open(file)
+    useDiagnostics.getState().navigate(file, Number(fix.result?.line), 1, false)
+  }
+
+  // A Test/Verifier run opens in Test Results, and each unit test's latest result is in the security state.
+  function showTestRun(messages: Message[]) {
+    const run = messages.find((m) => m.data.run)?.data.run
+    if (!run) return
+    useTests.getState().show(run)
+    void useSecurity.getState().load()
   }
 
   function appendDelta(agent: Agent, content: string) {
@@ -75,15 +106,27 @@ export const useAgents = create<AgentStore>((set, get) => {
     }
   }
 
-  async function refresh(mode: Mode, version: number) {
+  async function revealDelta(agent: Agent, content: string, version: number) {
+    const characters = Array.from(content)
+    for (let offset = 0; offset < characters.length; offset += STREAM_CHUNK_SIZE) {
+      if (version !== epoch) return
+      const chunk = characters.slice(offset, offset + STREAM_CHUNK_SIZE)
+      appendDelta(agent, chunk.join(''))
+      await new Promise<void>((resolve) => setTimeout(resolve, chunk.length * 1000 / STREAM_CHARACTERS_PER_SECOND))
+    }
+  }
+
+  async function refresh(mode: Mode, version: number): Promise<Approval[]> {
     const threads = await api.threads()
     // Replies can become complete while polling. Fetch approvals afterwards so their cards cannot be missed.
     const approvals = await api.approvals()
-    if (version !== epoch) return
+    if (version !== epoch) return []
     const messages = (threads[THREAD[mode]] ?? []).map((m) =>
       failed.has(m.id) && m.data.status !== 'complete' ? { ...m, data: { ...m.data, status: 'failed' as const } } : m,
     )
+    const fixes = newFixes(approvals)
     set({ messages: mergeMessages(messages), approvals: mergeApprovals(approvals) })
+    return fixes
   }
 
   function schedule() {
@@ -95,7 +138,7 @@ export const useAgents = create<AgentStore>((set, get) => {
     poll = setTimeout(async () => {
       if (version !== epoch) return
       try {
-        await refresh('team', version)
+        await showFixes(await refresh('team', version)) // e.g. the page was reloaded while a fix was being written
       } catch {
         // Keep running requests intact while the connection recovers.
       }
@@ -107,7 +150,7 @@ export const useAgents = create<AgentStore>((set, get) => {
     if (inFlight.has(id)) return
     inFlight.add(id)
     const version = epoch
-    set({ messages: get().messages.map((m) => m.id === id ? { ...m, data: { ...m.data, status: 'running', started_at: Date.now() / 1000 } } : m) })
+    set({ messages: get().messages.map((m) => m.id === id ? { ...m, data: { ...m.data, status: 'running', error: null, started_at: Date.now() / 1000 } } : m) })
     schedule()
     try {
       const result = await api.followUp(id)
@@ -115,7 +158,7 @@ export const useAgents = create<AgentStore>((set, get) => {
     } catch (error) {
       if (version === epoch) {
         failed.add(id)
-        set({ messages: get().messages.map((m) => m.id === id ? { ...m, data: { ...m.data, status: 'failed' } } : m) })
+        set({ messages: get().messages.map((m) => m.id === id ? { ...m, data: { ...m.data, status: 'failed', error: error instanceof Error ? error.message : String(error) } } : m) })
         showError(error)
       }
     } finally {
@@ -164,6 +207,7 @@ export const useAgents = create<AgentStore>((set, get) => {
     working: null,
     turnError: null,
     approvals: [],
+    undoing: false,
 
     load: async (mode) => {
       activeMode = mode
@@ -182,7 +226,7 @@ export const useAgents = create<AgentStore>((set, get) => {
       clearTimeout(poll)
       inFlight.clear()
       failed.clear()
-      set({ messages: [], streaming: [], sending: null, working: null, turnError: null, approvals: [] })
+      set({ messages: [], streaming: [], sending: null, working: null, turnError: null, approvals: [], undoing: false })
     },
 
     retryFollowUp: (id) => {
@@ -199,13 +243,13 @@ export const useAgents = create<AgentStore>((set, get) => {
       try {
         await useWorkspace.getState().saveAll() // asking for a review in chat reviews the saved files
         if (version !== epoch) return false
-        await api.sendStream(THREAD[mode], content, (event) => {
+        await api.sendStream(THREAD[mode], content, async (event) => {
           if (version !== epoch) return
           switch (event.type) {
             case 'message':
               saved = true
               set({ messages: mergeMessages([event.message]), sending: null })
-              if (ranTests([event.message])) void useSecurity.getState().load()
+              showTestRun([event.message])
               break
             case 'agent_start':
               set({
@@ -224,7 +268,7 @@ export const useAgents = create<AgentStore>((set, get) => {
               })
               break
             case 'delta':
-              appendDelta(event.agent, event.content)
+              await revealDelta(event.agent, event.content, version)
               break
             case 'agent_complete':
               set({ streaming: get().streaming.filter((message) => message.data.agent !== event.agent) })
@@ -252,7 +296,7 @@ export const useAgents = create<AgentStore>((set, get) => {
 
     review: async (mode) => {
       const version = epoch
-      set({ sending: REVIEW_MESSAGE, turnError: null, working: mode === 'team' ? 'reviewer' : 'assistant' })
+      set({ sending: REVIEW_MESSAGE, turnError: null, working: mode === 'team' ? 'verifier' : 'assistant' })
       useUi.getState().showRightTab('chat')
       try {
         await useWorkspace.getState().saveAll() // the review reads the saved files
@@ -297,18 +341,57 @@ export const useAgents = create<AgentStore>((set, get) => {
         }
         const decided = await api.decide(id, decision)
         set({ approvals: get().approvals.map((a) => (a.id === id ? decided : a)) })
-        // Team mode: everything approved changes the state (an approved fix becomes a mitigation), and a rejected
-        // vulnerability stays listed there as rejected.
+        // Team mode: everything approved changes the state, and a rejected vulnerability stays listed there as rejected.
         const changesState = decided.status !== 'rejected' || decided.action_type === 'propose_vulnerability'
         if (changesState && useSecurity.getState().state) await useSecurity.getState().load()
         if (decided.status !== 'rejected') {
           if (decided.action_type === 'propose_test') await useWorkspace.getState().load()
-          // An accepted finding queues the Code Reviewer's fix.
-          if (activeMode === 'team' && decided.action_type === 'propose_vulnerability') await get().load('team')
         }
         return null
       } catch (error) {
         return error instanceof Error ? error.message : String(error)
+      }
+    },
+    chooseFix: async (id, choice) => {
+      const version = epoch
+      try {
+        await useWorkspace.getState().saveAll() // the reviewer's fix or guidance reads the saved code
+        if (version !== epoch) return null
+        const chosen = await api.chooseFix(id, choice)
+        if (version !== epoch) return null
+        set({ approvals: get().approvals.map((a) => a.id === id ? chosen : a) })
+        await get().load('team') // starts the selected durable reviewer follow-up
+        return null
+      } catch (error) {
+        if (version !== epoch) return null
+        return error instanceof Error ? error.message : String(error)
+      }
+    },
+    undoFix: async (id) => {
+      if (get().undoing || get().messages.some((message) => ['queued', 'running'].includes(message.data.status ?? ''))) {
+        return 'Wait for the current code edit to finish before undoing this fix.'
+      }
+      const version = epoch
+      const fix = get().approvals.find((approval) => approval.id === id)
+      const path = String(fix?.proposal.file ?? '')
+      set({ undoing: true })
+      try {
+        await useWorkspace.getState().save(path)
+        if (useWorkspace.getState().dirty.includes(path)) throw new Error(`Save ${path} before undoing this fix.`)
+        if (version !== epoch) return null
+        const undone = await api.undoFix(id)
+        if (version !== epoch) return null
+        set({ approvals: get().approvals.map((approval) => approval.id === id ? undone : approval) })
+        await Promise.all([useWorkspace.getState().load(), useSecurity.getState().load()])
+        if (version !== epoch) return null
+        useWorkspace.getState().open(path)
+        useDiagnostics.getState().navigate(path, Number(undone.result?.line), 1, false)
+        return null
+      } catch (error) {
+        if (version !== epoch) return null
+        return error instanceof Error ? error.message : String(error)
+      } finally {
+        if (version === epoch) set({ undoing: false })
       }
     },
   }

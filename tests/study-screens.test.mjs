@@ -44,19 +44,18 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
     const { QuestionnairePager } = await server.ssrLoadModule('/src/components/QuestionnairePager.tsx')
     const start = () => renderToStaticMarkup(createElement(StartScreen, { state }))
 
-    await t.test('setup has all CWE-labelled tasks, both modes and the real researcher contact', () => {
+    await t.test('setup requires an explicit task choice and keeps both modes and researcher contact', () => {
       const html = start()
       assert.match(html, /<h1>Secure Coding Room<\/h1>/)
-      assert.match(html, /<select[^>]+class="task-select"[^>]+id="session-task"/)
-      assert.match(html, /class="task-picker-icon task-a"/)
+      assert.match(html, /<button[^>]+id="session-task"[^>]+role="combobox"/)
+      assert.match(html, /aria-expanded="false"/)
+      assert.match(html, /Select a task/)
       assert.match(html, /codicon-chevron-down task-picker-arrow[^>]*aria-hidden="true"/)
-      assert.match(html, /authentication task/)
-      assert.match(html, /file download task/)
-      for (const task of state.available_tasks) assert.ok(html.includes(`${task.label} (${task.cwe})`))
-      assert.equal((html.match(/<option /g) ?? []).length, state.available_tasks.length)
+      assert.doesNotMatch(html, /task-picker-icon task-a|authentication task/)
+      assert.match(html, /<button[^>]+disabled=""[^>]*>.*Start<\/button>/)
       assert.match(html, /aria-pressed="true"[^>]*>.*Team/)
-      assert.match(html, /New participant/)
-      assert.match(html, /New pilot participant/)
+      assert.match(html, /> Start<\/button>/)
+      assert.doesNotMatch(html, /New participant|New pilot participant/)
       assert.match(html, /Ibrahim Habeeb-lahi Abiola/)
       assert.match(html, /mailto:hi261@exeter.ac.uk/)
       assert.match(html, /Prof\. Solomon Oyelere/)
@@ -65,10 +64,10 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.doesNotMatch(html, /About one hour|One task, two modes|Anonymous participation|study-facts/)
     })
 
-    await t.test('busy setup disables both participant buttons and task selection', () => {
+    await t.test('busy setup disables Start, the mode buttons and task selection', () => {
       globalThis.studyScreenState.busy = true
       const html = start()
-      assert.match(html, /<select[^>]+disabled=""/)
+      assert.match(html, /<button[^>]+role="combobox"[^>]+disabled=""/)
       assert.match(html, /class="task-picker disabled"/)
       assert.equal((html.match(/<button[^>]+disabled=""/g) ?? []).length, 4)
       globalThis.studyScreenState.busy = false
@@ -82,7 +81,8 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.match(html, /Next: Single assistant/)
       assert.match(html, /Part 2 task/)
       assert.doesNotMatch(html, /authentication task/)
-      assert.match(html, /file download task/)
+      assert.match(html, /Select a task/)
+      assert.match(html, /id="next-task"[^>]+role="combobox"/)
       assert.match(html, /Start Part 2 with Single assistant/)
       assert.match(html, /disabled=""/)
       globalThis.studyScreenState.state = state
