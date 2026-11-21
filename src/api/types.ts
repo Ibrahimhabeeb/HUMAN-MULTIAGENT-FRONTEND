@@ -59,6 +59,8 @@ export interface Message {
     kind?: 'vulnerability_follow_up'
     status?: 'queued' | 'running' | 'failed' | 'complete'
     error?: string | null
+    reviewer_reply?: string | null
+    fix_outcome?: 'written' | 'no_change' | null
     vulnerability_id?: string
     fix_choice?: 'reviewer' | 'developer'
     hidden?: boolean // a Test/Verifier follow-up that proposed no test: kept for the researcher, not shown

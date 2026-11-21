@@ -121,9 +121,14 @@ export const useAgents = create<AgentStore>((set, get) => {
     // Replies can become complete while polling. Fetch approvals afterwards so their cards cannot be missed.
     const approvals = await api.approvals()
     if (version !== epoch) return []
-    const messages = (threads[THREAD[mode]] ?? []).map((m) =>
-      failed.has(m.id) && m.data.status !== 'complete' ? { ...m, data: { ...m.data, status: 'failed' as const } } : m,
-    )
+    const previous = new Map(get().messages.map((m) => [m.id, m]))
+    const messages = (threads[THREAD[mode]] ?? []).map((m) => {
+      const prior = previous.get(m.id)
+      if (inFlight.has(m.id) && prior?.data.status === 'running' && m.data.status === 'queued') return prior
+      return failed.has(m.id) && m.data.status !== 'complete' ? {
+        ...m, data: { ...m.data, status: 'failed' as const, error: m.data.error ?? prior?.data.error },
+      } : m
+    })
     const fixes = newFixes(approvals)
     set({ messages: mergeMessages(messages), approvals: mergeApprovals(approvals) })
     return fixes
@@ -160,6 +165,11 @@ export const useAgents = create<AgentStore>((set, get) => {
         failed.add(id)
         set({ messages: get().messages.map((m) => m.id === id ? { ...m, data: { ...m.data, status: 'failed', error: error instanceof Error ? error.message : String(error) } } : m) })
         showError(error)
+        try {
+          await showFixes(await refresh('team', version)) // Recover the saved explanation or a completed edit.
+        } catch {
+          // Keep the visible failure and Retry action when the connection is unavailable.
+        }
       }
     } finally {
       if (version === epoch) {

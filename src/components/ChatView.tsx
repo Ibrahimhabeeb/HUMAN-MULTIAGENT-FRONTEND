@@ -213,6 +213,12 @@ function FollowUpMessage({ message }: { message: Message }) {
           </button>
         )}
       </div>
+      {failed && message.data.reviewer_reply && (
+        <div className="msg-body">
+          <div className="msg-note">Code Reviewer response — no edit was applied:</div>
+          <Markdown text={message.data.reviewer_reply} />
+        </div>
+      )}
     </div>
   )
 }

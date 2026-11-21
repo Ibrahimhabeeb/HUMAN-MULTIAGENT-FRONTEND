@@ -143,6 +143,33 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
       assert.match(render(), /tests\/test_security.py/)
     })
 
+    await t.test('a failed fix shows the saved explanation and the actual rejection', () => {
+      const failed = job(17, 'reviewer', 'failed')
+      globalThis.reviewFixtures.agents.messages = [{
+        ...failed, data: { ...failed.data, error: 'The replacement did not match app/auth.py.',
+          reviewer_reply: 'The query needs a parameterized replacement.' },
+      }]
+      globalThis.reviewFixtures.agents.approvals = [finding]
+      const html = render()
+      assert.match(html, /replacement did not match app\/auth.py/)
+      assert.match(html, /no edit was applied/)
+      assert.match(html, /query needs a parameterized replacement/)
+      assert.match(html, /> Retry<\/button>/)
+    })
+
+    await t.test('a no-change explanation is shown without an edited-file card', () => {
+      const explanation = finished(job(18, 'reviewer'))
+      globalThis.reviewFixtures.agents.messages = [{
+        ...explanation, content: 'No code change was made. The database already enforces uniqueness.',
+        data: { ...explanation.data, fix_outcome: 'no_change' },
+      }]
+      globalThis.reviewFixtures.agents.approvals = [finding]
+      const html = render()
+      assert.match(html, /No code change was made/)
+      assert.match(html, /database already enforces uniqueness/)
+      assert.doesNotMatch(html, /View changes|The fix could not be written/)
+    })
+
     await t.test('decisions unlock tests and updated-code review in both modes', () => {
       globalThis.reviewFixtures.agents.messages = [reviewed, reviewReply, finished(job(12, 'reviewer'), fix), finished(job(13, 'verifier'), securityTest)]
       globalThis.reviewFixtures.agents.approvals = [{ ...finding, result: { item_id: 'V1', fix_choice: 'reviewer' } }, { ...fix, status: 'approved' }, { ...securityTest, status: 'approved' }]
@@ -282,6 +309,51 @@ test('approval-triggered agent work runs concurrently and survives reload/reset'
       requests.get(31).resolve({ messages: [finished(backendMessages[1], securityTest)], approvals: [securityTest], next: null })
       await flush()
       assert.ok(store.getState().messages.every((m) => m.data.status === 'complete'))
+    })
+
+    await t.test('a failed request immediately loads the saved reviewer explanation', async () => {
+      store.getState().reset()
+      calls = []
+      requests = new Map()
+      backendMessages = [job(32, 'reviewer')]
+      backendApprovals = [finding]
+      await store.getState().load('team')
+      backendMessages = [{
+        ...backendMessages[0], data: { ...backendMessages[0].data, status: 'failed',
+          error: 'No valid fix was recorded.', reviewer_reply: 'The proposed replacement needs to be revised.' },
+      }]
+      requests.get(32).reject(new Error('No valid fix was recorded.'))
+      await flush()
+      assert.equal(store.getState().messages[0].data.reviewer_reply, 'The proposed replacement needs to be revised.')
+      assert.equal(store.getState().messages[0].data.error, 'No valid fix was recorded.')
+      assert.deepEqual(calls, [32])
+    })
+
+    await t.test('a lost response recovers an already written fix without applying it again', async () => {
+      store.getState().reset()
+      calls = []
+      requests = new Map()
+      backendMessages = [job(33, 'reviewer')]
+      backendApprovals = [finding]
+      const workspace = globalThis.reviewFixtures.workspace
+      const originalOpen = workspace.open
+      const originalLoad = workspace.load
+      const opened = []
+      workspace.open = (path) => opened.push(path)
+      workspace.load = async () => {}
+      try {
+        await store.getState().load('team')
+        backendMessages = [finished(backendMessages[0], written)]
+        backendApprovals = [finding, written]
+        requests.get(33).reject(new Error('Connection interrupted'))
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        assert.equal(store.getState().messages[0].data.status, 'complete')
+        assert.deepEqual(opened, ['app/auth.py'])
+        assert.deepEqual(calls, [33])
+      } finally {
+        workspace.open = originalOpen
+        workspace.load = originalLoad
+      }
     })
 
     await t.test('pending jobs resume on load but late replies never enter another part', async () => {
