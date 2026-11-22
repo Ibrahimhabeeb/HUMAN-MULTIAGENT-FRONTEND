@@ -207,6 +207,7 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
           agent: 'threat_modeller',
           threat_example: {
             path: 'app/auth.py', language: 'python',
+            function: 'login',
             code: 'def login(username):\n    return conn.execute(f"SELECT {username}")',
           },
         },
@@ -217,7 +218,11 @@ test('chat review controls and inline decisions reflect the workflow', async (t)
       assert.match(html, /Illustrative risk example/)
       assert.match(html, /app\/auth.py/)
       assert.match(html, /Potentially unsafe pattern to recognise/)
+      assert.match(html, /Scope: login\(\) only\./)
+      assert.match(html, /Keep the other functions and imports/)
       assert.match(html, /code-copy/)
+      delete globalThis.reviewFixtures.agents.messages[0].data.threat_example.function
+      assert.match(render(), /Code excerpt only\./)
     })
 
     await t.test('only findings and mitigations have direct Add controls', () => {
