@@ -126,10 +126,11 @@ function AgentMessage({ message }: { message: Message }) {
               <Codicon name="shield" />
               <div className="card-title">
                 <div className="card-title-main">Illustrative risk example</div>
-                <div className="card-sub">{threatExample.path}</div>
+                <div className="card-sub">{threatExample.path}{threatExample.function && ` · ${threatExample.function}() only`}</div>
               </div>
             </div>
             <CodeBlock code={threatExample.code} language={threatExample.language} path={threatExample.path} />
+            <div className="card-note">{threatExample.function ? `Scope: ${threatExample.function}() only.` : 'Code excerpt only.'} Keep the other functions and imports in {threatExample.path}.</div>
             <div className="card-note"><Codicon name="warning" /> Potentially unsafe pattern to recognise — not code to use as a solution.</div>
           </section>
         )}

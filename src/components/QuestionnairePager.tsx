@@ -4,6 +4,7 @@ import type { Answer, Condition, Mode, Question, QuestionnaireForm, Questionnair
 import { questionText } from '../lib/questionnaire'
 import { ask } from '../store/dialog'
 import { useStudy } from '../store/study'
+import { Codicon } from './Icons'
 
 type Value = number | string
 type Answers = Record<string, Value>
@@ -52,7 +53,7 @@ function QuestionInput({ question, form, label, value, onChange }: {
     ? Array.from({ length: (question.scale?.max ?? 0) - (question.scale?.min ?? 0) + 1 }, (_, i) => (question.scale?.min ?? 0) + i)
     : question.options
   return (
-    <div className={question.type === 'scale' ? 'scale-buttons' : 'choice-buttons'}>
+    <div className={question.type === 'scale' ? 'scale-buttons' : 'choice-buttons'} role="group" aria-label={label}>
       {options.map((option) => (
         <button key={option} type="button" className={option === value ? 'on' : ''} aria-pressed={option === value} onClick={() => onChange(option === value ? null : option)}>{option}</button>
       ))}
@@ -72,12 +73,12 @@ function ModeAnswer({ mode, question, form, value, onChange }: {
 }) {
   const label = questionText(question, mode.mode)
   return (
-    <div className="mode-answer">
-      <div className="mode-answer-label">{mode.label}</div>
+    <section className="mode-answer" aria-label={mode.label}>
+      <div className="mode-answer-label"><Codicon name={mode.mode === 'team' ? 'organization' : 'sparkle'} />{mode.label}</div>
       <p>{label}</p>
       <QuestionInput question={question} form={form} label={label} value={value} onChange={onChange} />
       {question.type === 'scale' && question.scale && <div className="scale-endpoints"><span>{question.scale.min_label}</span><span>{question.scale.max_label}</span></div>}
-    </div>
+    </section>
   )
 }
 
@@ -99,14 +100,14 @@ function QuestionCard({ entry, previous, form, answers, onAnswer }: {
   return (
     <article className="question-card">
       {showSection && <div className="question-card-section"><h2>{section.title}</h2>{section.intro && <p>{section.intro}</p>}</div>}
-      <div className="question-card-heading"><span className="question-number">{question.number}</span><span>Question {question.number}</span></div>
+      <div className="question-card-heading"><span className="question-number">{question.number}</span><span>Question {question.number}</span>{modes.length > 1 && <span className="question-card-hint">Answer once for each mode</span>}</div>
       {section.asked_for === 'once' ? (
         <>
           <p className="question-prompt">{questionText(question)}</p>
           <QuestionInput question={question} form={form} label={questionText(question)} value={answers[keyOf('none', question.key)]} onChange={(value) => onAnswer('none', question.key, value)} />
         </>
       ) : (
-        <div className="mode-answer-grid">
+        <div className={`mode-answer-grid${modes.length > 1 ? ' paired' : ''}`}>
           {modes.map((mode) => <ModeAnswer key={mode.mode} mode={mode} question={question} form={form} value={answers[keyOf(mode.mode, question.key)]} onChange={(value) => onAnswer(mode.mode, question.key, value)} />)}
         </div>
       )}

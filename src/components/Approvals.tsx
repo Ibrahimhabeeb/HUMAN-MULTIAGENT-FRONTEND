@@ -88,6 +88,7 @@ export function ApprovalCard({ approval, showFixChoice = false }: { approval: Ap
   const agent = AGENTS[approval.actor]
   const type = approval.action_type
   const pending = approval.status === 'pending'
+  const singleFix = approval.actor === 'assistant' && type === 'suggest_fix'
   const decided = approval.status === 'approved' || approval.status === 'rejected'
   const vulnerabilityId = String(approval.result?.item_id ?? '')
   const hasMitigation = useSecurity((s) => Boolean(s.state?.mitigations?.some((m) => m.vulnerability_id === vulnerabilityId)))
@@ -128,13 +129,14 @@ export function ApprovalCard({ approval, showFixChoice = false }: { approval: Ap
         <ProposalView type={type} proposal={approval.proposal} />
       </div>
 
+      {pending && singleFix && <div className="card-note">Would you like to use this suggested fix?</div>}
       {pending && (
-        <div className="card-actions">
+        <div className="card-actions" role="group" aria-label={singleFix ? 'Use this suggested fix' : 'Proposal decision'}>
           <button className="mini-btn approve" disabled={busy} onClick={() => decide('approve')}>
-            <Codicon name="check" /> Approve
+            <Codicon name="check" /> {singleFix ? 'Yes, use this fix' : 'Approve'}
           </button>
           <button className="mini-btn reject" disabled={busy} onClick={() => decide('reject')}>
-            <Codicon name="close" /> Reject
+            <Codicon name="close" /> {singleFix ? 'No, skip it' : 'Reject'}
           </button>
         </div>
       )}

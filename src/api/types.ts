@@ -70,6 +70,7 @@ export interface Message {
       path: string
       code: string
       language: string
+      function?: string
     }
   }
   ts: string

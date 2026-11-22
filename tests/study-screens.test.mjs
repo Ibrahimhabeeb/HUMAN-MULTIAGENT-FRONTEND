@@ -152,6 +152,9 @@ test('study screens keep setup, progress and withdrawal messaging consistent', a
       assert.match(html, /Strongly agree/)
       assert.doesNotMatch(html, /I was wary/)
       assert.equal((html.match(/class="question-card"/g) ?? []).length, 1)
+      assert.match(html, /class="mode-answer-grid paired"/)
+      assert.match(html, /Answer once for each mode/)
+      assert.equal((html.match(/<section class="mode-answer"/g) ?? []).length, 2)
       assert.match(html, /Page 1 of 3/)
     })
   } finally {
