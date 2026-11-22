@@ -45,8 +45,10 @@ export function TitleBar({ state }: { state: StudyState }) {
           <Codicon name={running ? 'loading' : 'beaker'} className={running ? 'codicon-modifier-spin' : ''} />
           {running ? 'Running…' : 'Run tests'}
         </button>
-        <button className="run-btn done" disabled={busy} onClick={done}>
-          <Codicon name="check" /> Finish part
+        <button type="button" className="run-btn done" title="Finish this part and continue" disabled={busy} onClick={done}>
+          <span className="finish-part-icon"><Codicon name="check" /></span>
+          <span>Finish part</span>
+          <Codicon name="arrow-right" className="finish-part-arrow" />
         </button>
 
         <span className="titlebar-sep" />

@@ -31,10 +31,33 @@
   cursor: default;
 }
 .run-btn.done {
-  background: #3a3d41;
+  height: 28px;
+  gap: 7px;
+  margin-left: 6px;
+  padding: 0 12px;
+  border: 1px solid #6ee7c9;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #6ee7b7, #2dd4bf);
+  color: #063b33;
+  font-weight: 700;
+  box-shadow: 0 2px 8px #0003, inset 0 1px 0 #ffffff59;
+  transition: transform .15s ease, box-shadow .15s ease;
 }
 .run-btn.done:hover:not(:disabled) {
-  background: #45494e;
+  background: linear-gradient(135deg, #a7f3d0, #5eead4);
+  box-shadow: 0 3px 12px #0004, 0 0 0 2px #5eead41a;
+  transform: translateY(-1px);
+}
+.run-btn.done:active:not(:disabled) { transform: translateY(0); box-shadow: inset 0 1px 3px #063b3333; }
+.run-btn.done:focus-visible { outline: 2px solid #b5fff0; outline-offset: 2px; }
+.run-btn.done:disabled { box-shadow: none; }
+.run-btn.done .codicon { color: inherit; }
+.finish-part-icon { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: #063b331a; }
+.finish-part-icon .codicon { font-size: 12px; }
+.finish-part-arrow { font-size: 14px; transition: transform .15s ease; }
+.run-btn.done:hover:not(:disabled) .finish-part-arrow { transform: translateX(2px); }
+@media (prefers-reduced-motion: reduce) {
+  .run-btn.done, .finish-part-arrow { transition: none; }
 }
 .timer {
   display: inline-flex;
