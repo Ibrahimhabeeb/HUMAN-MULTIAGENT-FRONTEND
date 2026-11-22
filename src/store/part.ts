@@ -1,6 +1,8 @@
 import { editor } from 'monaco-editor'
 import type { Mode } from '../api/types'
+import { taskEntry } from '../lib/taskEntry'
 import { useAgents } from './agents'
+import { useDiagnostics } from './diagnostics'
 import { useNotes } from './notes'
 import { useSecurity } from './security'
 import { useTests } from './tests'
@@ -15,6 +17,7 @@ export function resetPart() {
   useSecurity.getState().reset()
   useNotes.getState().reset()
   useTests.getState().reset()
+  useDiagnostics.getState().reset()
   useUi.setState({ sidebarView: 'explorer', rightTab: 'chat' })
   editor.getModels().forEach((model) => model.dispose())
 }
@@ -30,6 +33,11 @@ export async function loadPart(mode: Mode) {
   const { files } = useWorkspace.getState()
   useWorkspace.setState({ expanded: Object.keys(files).filter((path) => files[path].type === 'folder') })
   if (files['README.md']) useWorkspace.getState().open('README.md')
+  const entry = taskEntry(files)
+  if (entry) {
+    useWorkspace.getState().open(entry.path)
+    useDiagnostics.getState().navigate(entry.path, entry.row, 1, false)
+  }
 }
 
 // Called before anything that ends or leaves the part, so no typing is lost.
