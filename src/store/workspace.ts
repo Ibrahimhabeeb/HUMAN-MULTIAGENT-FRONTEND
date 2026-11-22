@@ -1,8 +1,9 @@
-import { editor, Range, Uri } from 'monaco-editor'
+import { editor, Uri } from 'monaco-editor'
 import { create } from 'zustand'
 import { ApiError, api } from '../api/client'
 import type { FileMap } from '../api/types'
 import { isInside, parentOf } from '../lib/files'
+import { applyModelText } from '../monaco/modelEdits'
 import { showError } from './ui'
 
 // The participant's files. Edits are saved to the backend a moment after typing stops.
@@ -40,29 +41,25 @@ function cancelSave(path: string) {
   saveTimers.delete(path)
 }
 
-// Replaces only the text that changed, as one undo step, so Ctrl+Z works and highlights elsewhere stay on their lines.
-function applyChange(model: editor.ITextModel, content: string) {
-  model.pushEOL(editor.EndOfLineSequence.LF) // the backend's text always uses LF
-  const old = model.getValue()
-  let start = 0
-  while (start < old.length && start < content.length && old[start] === content[start]) start++
-  let end = 0
-  while (end < old.length - start && end < content.length - start && old.at(-1 - end) === content.at(-1 - end)) end++
-  const range = Range.fromPositions(model.getPositionAt(start), model.getPositionAt(old.length - end))
-  model.pushStackElement()
-  model.pushEditOperations([], [{ range, text: content.slice(start, content.length - end) }], () => null)
-  model.pushStackElement()
-}
-
 export const useWorkspace = create<WorkspaceStore>((set, get) => ({
   ...empty,
 
   load: async () => {
     try {
+      const requested = get().files
       const files = await api.files()
       const { files: local, dirty, openPaths, selectedPath } = get()
-      for (const path of dirty) {
-        if (files[path]?.type === 'file' && local[path]) files[path] = local[path] // keep unsaved typing
+      const protectedPaths = new Set(dirty)
+      // A save can finish while this refresh is pending, so check changes since the request too.
+      for (const path of new Set([...Object.keys(requested), ...Object.keys(local)])) {
+        const before = requested[path], now = local[path]
+        if (before?.type !== now?.type || now?.type === 'file' && (before?.type !== 'file' || before.content !== now.content)) {
+          protectedPaths.add(path)
+        }
+      }
+      for (const path of protectedPaths) {
+        if (local[path]) files[path] = local[path]
+        else delete files[path]
       }
       const stillOpen = openPaths.filter((p) => files[p]?.type === 'file')
       set({
@@ -72,10 +69,10 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
       })
       // The editor isn't driven by React (that can drop keystrokes), so changes from the server, such as an
       // approved test file or a fix the Code Reviewer wrote, go straight into its text. Files with unsaved typing
-      // are left alone.
+      // and files changed while this request was pending are left alone.
       for (const [path, node] of Object.entries(files)) {
-        const model = node.type === 'file' && !dirty.includes(path) ? editor.getModel(Uri.parse(path)) : null
-        if (model && node.type === 'file' && model.getValue() !== node.content) applyChange(model, node.content)
+        const model = node.type === 'file' && !protectedPaths.has(path) ? editor.getModel(Uri.parse(path)) : null
+        if (model && node.type === 'file' && model.getValue() !== node.content) applyModelText(model, node.content)
       }
     } catch (error) {
       showError(error)
